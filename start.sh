@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Image Gen MCP. The first time (no config.yaml yet) it runs the setup first (see setup.sh); without a terminal
+# Start Image Gen MCP. Until the first install has finished, it runs the setup first (see setup.sh); without a terminal
 # it uses config.example.yaml instead. Then it builds the image if needed, starts the server and waits until the
 # model is loaded. The steps are in scripts/lib.sh.
 #   --build    build (or, with IMAGE_REPO set, pull) the image again even if it exists
@@ -21,7 +21,13 @@ main() {
   done
   echo "Image Gen MCP"
   check_docker
-  if [ -f config.yaml ]; then
+  if [ -f config.yaml ] && interactive && ! installed; then
+    # The first install did not finish (no image yet): the steps again, with the saved answers as defaults.
+    echo
+    echo "==> The first install did not finish, so the setup runs again."
+    run_setup
+    mode=restart
+  elif [ -f config.yaml ]; then
     detect
     show_settings
   elif interactive; then

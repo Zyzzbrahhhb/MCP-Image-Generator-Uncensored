@@ -626,6 +626,8 @@ load_settings() {
   IMAGE_REPO=$(sed -nE 's/^[[:space:]]*IMAGE_REPO[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p' .env | head -n1)
   IMAGE="${IMAGE_REPO:-imagegen-mcp}:$PROFILE"
 }
+# installed: true when the first install has finished: the image of the server is there (built or downloaded).
+installed() { load_settings; docker image inspect "$IMAGE" >/dev/null 2>&1; }
 # server_running: true when the container runs (one that keeps restarting after a crash does not count).
 server_running() {
   docker ps --filter 'name=^imagegen-mcp$' --filter status=running --format '{{.Names}}' 2>/dev/null | grep -q .

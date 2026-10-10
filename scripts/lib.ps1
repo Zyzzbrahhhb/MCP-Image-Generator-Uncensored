@@ -574,6 +574,11 @@ function Get-Settings {
     $image = if ($repo) { "${repo}:$prof" } else { "imagegen-mcp:$prof" }
     @{ Profile = $prof; Port = $port; ImageRepo = $repo; Image = $image }
 }
+# True when the first install has finished: the image of the server is there (built or downloaded).
+function Test-Installed {
+    $s = Get-Settings
+    (Invoke-Program 'docker' @('image', 'inspect', $s.Image)).Code -eq 0
+}
 # True when the container runs (one that keeps restarting after a crash does not count).
 function Test-ServerRunning {
     $r = Invoke-Program 'docker' @('ps', '--filter', 'name=^imagegen-mcp$', '--filter', 'status=running', '--format', '{{.Names}}')

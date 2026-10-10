@@ -1,5 +1,5 @@
 # Image Gen MCP for Windows. setup.cmd, start.cmd, update.cmd and stop.cmd run this script; the steps are in lib.ps1.
-#   start    start the server; the first time (no config.yaml yet) it runs the setup first
+#   start    start the server; until the first install has finished, it runs the setup first
 #   setup    choose where the server runs and which model it uses, then start it
 #   update   install the latest version with git
 #   stop     stop the server
@@ -21,7 +21,13 @@ switch ($Action) {
         Write-Host 'Image Gen MCP'
         Test-Docker
         $mode = if ($Restart) { 'restart' } else { 'ask' }
-        if (Test-Path -LiteralPath config.yaml) {
+        if ((Test-Path -LiteralPath config.yaml) -and (Test-Interactive) -and -not (Test-Installed)) {
+            # The first install did not finish (no image yet): the steps again, with the saved answers as defaults.
+            Write-Host ''
+            Write-Host '==> The first install did not finish, so the setup runs again.'
+            Invoke-Setup
+            $mode = 'restart'
+        } elseif (Test-Path -LiteralPath config.yaml) {
             Show-Settings (Get-Machine)
         } elseif (Test-Interactive) {
             Invoke-Setup
