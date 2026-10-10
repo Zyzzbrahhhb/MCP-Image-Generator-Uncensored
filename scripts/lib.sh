@@ -788,7 +788,10 @@ run_update() {
     read_choice 2 1
     if [ "$CHOICE" = 1 ]; then echo "Nothing was changed."; return 0; fi
     # Keep a copy for people who know git: the changed files in a stash, the old version in a branch.
-    if [ -n "$changed" ]; then git stash push --quiet -m "changes before update" >/dev/null 2>&1 || true; fi
+    # The name and email let the stash work where git has no identity set (common on new computers).
+    if [ -n "$changed" ]; then
+      git -c user.name="Image Gen MCP" -c user.email=update@localhost stash push --quiet -m "changes before update"         >/dev/null 2>&1 || true
+    fi
     git branch -f before-update "$old" >/dev/null 2>&1 || true
     if ! out=$(git reset --hard --quiet '@{u}' 2>&1); then
       echo "The update failed: $(printf '%s\n' "$out" | awk 'NF { print; exit }')" >&2

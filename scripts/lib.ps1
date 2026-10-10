@@ -713,7 +713,11 @@ function Update-FromGit([string]$Download) {
         Write-Host '  2) Discard the changes and install the update'
         if ((Read-Choice 2 1) -eq 1) { Write-Host 'Nothing was changed.'; return }
         # Keep a copy for people who know git: the changed files in a stash, the old version in a branch.
-        if ($changed.Count -gt 0) { Invoke-Git @('stash', 'push', '--quiet', '-m', 'changes before update') | Out-Null }
+        # The name and email let the stash work where git has no identity set (common on new computers).
+        if ($changed.Count -gt 0) {
+            Invoke-Git @('-c', 'user.name=Image Gen MCP', '-c', 'user.email=update@localhost', 'stash', 'push', '--quiet',
+                         '-m', 'changes before update') | Out-Null
+        }
         Invoke-Git @('branch', '-f', 'before-update', $old) | Out-Null
         $r = Invoke-Git @('reset', '--hard', '--quiet', '@{u}')
         if ($r.Code -ne 0) { Write-Host "The update failed: $(Get-FirstLine $r.Err)" -ForegroundColor Red; exit 1 }
