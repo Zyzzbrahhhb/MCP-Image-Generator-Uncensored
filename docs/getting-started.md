@@ -9,7 +9,7 @@ screens are almost the same.
 | You need | Details |
 |---|---|
 | Docker | **Windows**: [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) (WSL 2). **Linux**: [Docker Engine](https://docs.docker.com/engine/install/) with Compose, `curl`, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for a GPU. |
-| GPU (optional) | NVIDIA RTX 20xx or newer, 8 GB or more (12 GB recommended), driver 570 or newer. Without a GPU, the server uses the CPU: several minutes per image. |
+| GPU (optional) | NVIDIA RTX 20xx or newer, 4 GB or more (12 GB recommended), driver 570 or newer. Without a GPU, the server uses the CPU: several minutes per image. |
 | Memory | Docker needs 16 GB or more. On Windows, Docker gets half of the RAM, so 32 GB of RAM is recommended. |
 | Disk | 12-16 GB for the models, 6 GB for the server, and space for the first build. |
 
@@ -77,9 +77,10 @@ Type a number and press Enter [0]:
 
 - Next to each GPU: the model that it suits best. The GPU with the most memory is recommended.
 - Choose a GPU that no other program uses. The whole model goes on it. If it does not all fit, the server keeps
-  some weights in RAM by itself, at about the same speed.
+  some weights in RAM by itself. On 12 GB the speed stays about the same. On a smaller GPU each image takes longer.
 - The last choice lets you place each part of the model yourself. See [Custom load](#custom-load).
-- A GPU with less than 8 GB is too small. The script asks again. If it is your only GPU, the script offers the
+- A GPU with 4-7 GB runs Turbo with most of the model in RAM. Docker then needs about 16 GB of memory.
+- A GPU with less than 4 GB is too small. The script asks again. If it is your only GPU, the script offers the
   CPU.
 - Without an NVIDIA GPU, the script asks `Continue on the CPU (several minutes per image)? [Y/n]`. If you have an
   NVIDIA GPU, type `n`, install its driver, and run `start.cmd` again.
@@ -104,20 +105,17 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
 | Turbo | Official Turbo model, not uncensored. About 8 times faster. Weaker at small text. |
 
 - **Download**: what is still missing. The models share files, so a second model downloads less.
-- **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM, at the same speed.
+- **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,
+  slower with less.
 - **Time per image**: 1024x1024 on an RTX 3080 Ti. An RTX 5090 is about 2 times faster.
 - `<- recommended` is the best choice for your computer. `<- current` is the model that you use now.
 - Best quality with less than 20 GB for Docker: the script asks `Use it anyway? [y/N]`. Type `y` to keep it.
 - A model set by hand in `config.yaml` shows as `Keep the current model`. It is the default.
 
-**Memory check**: if a GPU may not have enough memory for your choice, the script warns you:
+If the GPU is small for the whole model, the script tells you after your choice:
 
 ```
-    GPU 1 (NVIDIA GeForce RTX 3080, 10 GB) may run out of memory: its parts need about 10 GB.
-    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.
-
-  1) Confirm
-  2) Choose another model
+    This GPU is small for the whole model: the server keeps part of it in RAM, so each image takes longer.
 ```
 
 ### Custom load
@@ -129,7 +127,7 @@ Only after `Custom load (multi-GPU and CPU)`. The model has three parts. You cho
 | Part | What it does | Put it on |
 |---|---|---|
 | Image model | Makes the image. Most of the work. | The fastest GPU, or several GPUs. |
-| Text encoder | Reads the prompt and the input images. | **RAM** (recommended for a GPU under 20 GB): the weights stay in RAM, it runs on the image model's GPU. Saves 5-9 GB of GPU memory. Or a GPU. On the CPU, edits take much longer. |
+| Text encoder | Reads the prompt and the input images. | **RAM** (recommended for a GPU with 8-19 GB): the weights stay in RAM, it runs on the image model's GPU. Saves 5-9 GB of GPU memory. It needs 8 GB or more on that GPU. Or a GPU. On the CPU, edits take much longer. |
 | Image decoder | Turns the result into pixels. The upscaler also runs here. | A GPU. On the CPU, each image and each upscale takes longer. |
 
 The script asks for each part, then shows your choice:
@@ -142,6 +140,13 @@ Your custom load:
 
   1) Confirm
   2) Start over
+```
+
+If a GPU may not have enough memory for its parts, the script warns you before `1) Confirm`:
+
+```
+    GPU 1 (NVIDIA GeForce RTX 3080, 10 GB) may run out of memory: its parts need about 10 GB.
+    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.
 ```
 
 ### The saved settings

@@ -271,7 +271,8 @@ function Get-LargestGpu($m) { @($m.Gpus | Sort-Object -Property @{ Expression = 
 # The model choice that a GPU of this size suits best, and whether all of it fits on the GPU.
 function Get-GpuFit($m, [int]$GB) {
     $cap = if ($GB -lt 20) { $GB - 2 } else { $GB }
-    if ($GB -lt 8) { return 'too small' }
+    if ($GB -lt 4) { return 'too small' }
+    if ($GB -lt 8) { return 'Turbo, slower' }
     if ($GB -lt 12) { return 'Turbo' }
     $p = if ($m.DockerGB -eq 0 -or $m.DockerGB -ge 20) { $Presets[0] } else { $Presets[1] }
     if ((Get-GpuNeed $p) -le $cap) { "$($p.Name), all on the GPU" } else { "$($p.Name), some weights in RAM" }
@@ -315,7 +316,7 @@ function Confirm-Cpu([string]$Reason, $m) {
 # --- step 3: the model ----------------------------------------------------------------------------------------------
 # Device and recommended choice for the GPU memory in VramGB (the total when the model is split).
 function Get-Recommendation($m) {
-    if ($m.Mac -or $m.VramGB -lt 8) { return @{ Device = 'cpu'; Preset = $TurboChoice } }
+    if ($m.Mac -or $m.VramGB -lt 4) { return @{ Device = 'cpu'; Preset = $TurboChoice } }
     $preset = if ($m.VramGB -lt 12) { $TurboChoice } elseif ($m.DockerGB -ge 20) { 1 } else { 2 }
     @{ Device = 'gpu'; Preset = $preset }
 }
@@ -356,7 +357,8 @@ function Show-Presets([int]$Recommended, [bool]$Cpu, [int]$Current, [string]$Cus
     Write-Host ''
     if ($Cpu) { Write-Host ' Memory: what Docker needs. On the CPU, each image takes several minutes.' }
     else {
-        Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM, at the same speed.'
+        Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,'
+        Write-Host ' slower with less.'
         Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti.'
     }
     Write-Host " 1 and 2 use the uncensored model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
@@ -381,7 +383,7 @@ function Get-EncoderGB($Preset) {
 $DecoderGB = '0.7'
 # The menu number for a saved place. Kind: image, te or dec. Host: the first GPU of the image model. Without a valid
 # saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else that GPU); the
-# image model's GPU for the image decoder.
+# image model's GPU for the image decoder. RAM needs 8 GB or more on the host GPU.
 function Get-PartDefault($m, [string]$Place, [string]$Kind, [string]$HostGpu = '') {
     $n = $m.GpuCount
     if ($Kind -eq 'image' -and $Place -match ' ') { return "$n" }
@@ -391,7 +393,10 @@ function Get-PartDefault($m, [string]$Place, [string]$Kind, [string]$HostGpu = '
     if ($Place -match '^[0-9]+$' -and (Get-Gpu $m ([int]$Place))) { return $Place }
     switch ($Kind) {
         'image' { return "$($m.Gpus[0].Index)" }
-        'te' { if ((Get-Gpu $m ([int]$HostGpu)).GB -lt 20) { return "$n" } else { return $HostGpu } }
+        'te' {
+            $gb = (Get-Gpu $m ([int]$HostGpu)).GB
+            if ($gb -ge 8 -and $gb -lt 20) { return "$n" } else { return $HostGpu }
+        }
         default { return $HostGpu }
     }
 }
@@ -405,7 +410,8 @@ function Read-Place($m, [string]$Name, [string]$GB, [string]$Kind, [string]$Defa
     switch ($Kind) {
         'image' { Write-Host "  $n) Several GPUs (split it)" }
         'te' {
-            $rec = if ((Get-Gpu $m ([int]$HostGpu)).GB -lt 20) { '  <- recommended' } else { '' }
+            $gb = (Get-Gpu $m ([int]$HostGpu)).GB
+            $rec = if ($gb -lt 8) { "  (needs 8 GB or more on GPU $HostGpu)" } elseif ($gb -lt 20) { '  <- recommended' } else { '' }
             Write-Host "  $n) RAM: the weights stay in RAM, it runs on GPU $HostGpu$rec"
             Write-Host "  $($n + 1)) CPU: $(Get-CpuName) (slow)"
         }
@@ -418,7 +424,12 @@ function Read-Place($m, [string]$Name, [string]$GB, [string]$Kind, [string]$Defa
             if (Get-Gpu $m ([int]$a)) { return "$([int]$a)" }
             $k = [int]$a - $n
             if ($Kind -eq 'image' -and $k -eq 0) { return (Read-GpuList $m $Saved) }
-            if ($Kind -eq 'te' -and $k -eq 0) { return 'ram' }
+            if ($Kind -eq 'te' -and $k -eq 0) {
+                # With less than 8 GB the explicit RAM setting stops the engine's auto-fit, and images fail.
+                if ((Get-Gpu $m ([int]$HostGpu)).GB -ge 8) { return 'ram' }
+                Write-Host "The text encoder in RAM needs 8 GB or more on GPU $HostGpu. Choose a GPU or the CPU."
+                continue
+            }
             if (($Kind -eq 'te' -and $k -eq 1) -or ($Kind -eq 'dec' -and $k -eq 0)) { return 'cpu' }
         }
         Write-Host "Please type a number from 0 to $max."
@@ -460,6 +471,18 @@ function Get-GpuWarnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
             '    GPU {0} ({1}, {2} GB) may run out of memory: its parts need about {3} GB.' -f $g.Index, $g.Name, $g.GB,
                 [int][math]::Floor($need + 0.5)
         }
+    }
+}
+# On one GPU, a note when the model does not fit in the GPU's limit even with the text encoder's and the decoder's
+# weights in RAM (the image model, about 0.4 GB for those two, and the working memory of the largest step, the decoder's
+# 4 GB at 1024x1024). The engine then keeps part of the image model in RAM or decodes in tiles, so each image takes
+# longer (measured on a real RTX 3080 10 GB: the decoder fell back to tiles).
+function Show-SlowNote($m, [string]$Gpu, $Preset) {
+    $gb = (Get-Gpu $m ([int]$Gpu)).GB
+    $cap = if ($gb -lt 20) { $gb - 2 } else { $gb }
+    if ([double](Get-ImageGB $Preset) + 0.4 + 4 -gt $cap) {
+        Write-Host ''
+        Write-Host '    This GPU is small for the whole model: the server keeps part of it in RAM, so each image takes longer.' -ForegroundColor Yellow
     }
 }
 # Print the memory warnings, if any. Returns $true when there were some.
@@ -566,17 +589,21 @@ function Invoke-Setup {
         while ($true) {
             $sel = Select-Gpu $m $default
             $m.VramGB = (@($sel.List | ForEach-Object { (Get-Gpu $m $_).GB }) | Measure-Object -Sum).Sum
-            if ($m.VramGB -ge 8 -or $m.GpuCount -eq 1 -or $total -lt 8) { break }
+            if ($m.VramGB -ge 4 -or $m.GpuCount -eq 1 -or $total -lt 4) { break }
             Write-Host ''
-            Write-Host "That GPU has only $($m.VramGB) GB of memory (8 GB or more is needed). Choose another GPU or the split." -ForegroundColor Yellow
+            Write-Host "That GPU has only $($m.VramGB) GB of memory (4 GB or more is needed). Choose another GPU or the custom load." -ForegroundColor Yellow
             $default = "$($m.GpuCount)"
         }
-        if ($m.VramGB -lt 8) {
-            Confirm-Cpu "That GPU has only $($m.VramGB) GB of memory (8 GB or more is needed), so the server can only run on the CPU." $m
+        if ($m.VramGB -lt 4) {
+            Confirm-Cpu "That GPU has only $($m.VramGB) GB of memory (4 GB or more is needed), so the server can only run on the CPU." $m
             $sel = $null
+        } elseif ($m.VramGB -lt 8) {
+            Write-Host ''
+            Write-Host "Note: with less than 8 GB, the server keeps most of the model in RAM. Use choice $TurboChoice (Turbo). Each image" -ForegroundColor Yellow
+            Write-Host 'takes longer, and Docker needs about 16 GB of memory.' -ForegroundColor Yellow
         } elseif ($m.VramGB -lt 12) {
             Write-Host ''
-            Write-Host "Note: GPUs with less than 12 GB have not been tested. Choice $TurboChoice is the most likely to fit." -ForegroundColor Yellow
+            Write-Host "Note: choice $TurboChoice (Turbo) fits this GPU best." -ForegroundColor Yellow
         }
     }
     if ($m.DockerGB -gt 0 -and $m.DockerGB -lt 16) {
@@ -589,7 +616,8 @@ function Invoke-Setup {
     $r = Get-Recommendation $m
     if (-not $sel) { $r.Device = 'cpu'; $r.Preset = $TurboChoice }
 
-    # Step 3: the model. On one GPU, the same memory check as for a split.
+    # Step 3: the model. On one GPU the engine always fits the model (auto-fit), so there is only a note when it will
+    # be slower. A custom load gets the memory check (Invoke-Split).
     $place = $null
     while ($true) {
         Write-Host ''
@@ -607,11 +635,8 @@ function Invoke-Setup {
         if (-not $sel -or $sel.Split) { break }
         $i = "$($sel.List[0])"
         $place = @{ Img = $i; TE = $i; Dec = $i }
-        if (-not (Show-Warnings $m $i $i $i $p)) { break }
-        Write-Host ''
-        Write-Host '  1) Confirm'
-        Write-Host '  2) Choose another model'
-        if ((Read-Choice 2 1) -eq 1) { break }
+        Show-SlowNote $m $i $p
+        break
     }
 
     # Step 3b: the custom load, now that the model is known.

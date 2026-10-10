@@ -213,7 +213,8 @@ largest_gpu() { printf '%s\n' "$GPU_ROWS" | sort -t'|' -k3,3nr -s | head -n1 | c
 gpu_fit() {
   local p cap=$1
   if [ "$1" -lt 20 ]; then cap=$(($1 - 2)); fi
-  if [ "$1" -lt 8 ]; then echo "too small"; return 0; fi
+  if [ "$1" -lt 4 ]; then echo "too small"; return 0; fi
+  if [ "$1" -lt 8 ]; then echo "Turbo, slower"; return 0; fi
   if [ "$1" -lt 12 ]; then echo "Turbo"; return 0; fi
   if [ "$DOCKER_GB" -eq 0 ] || [ "$DOCKER_GB" -ge 20 ]; then p=$(preset 1); else p=$(preset 2); fi
   if [ "$(gpu_need "$p")" -le "$cap" ]; then echo "$(pf "$p" 1), all on the GPU"
@@ -367,7 +368,7 @@ cpu_ok() {
 # --- step 3: the model ------------------------------------------------------------------------------------------------
 # recommend: sets DEVICE_REC and PRESET_REC.
 recommend() {
-  if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 8 ]; then DEVICE_REC=cpu; PRESET_REC=$TURBO; return 0; fi
+  if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 4 ]; then DEVICE_REC=cpu; PRESET_REC=$TURBO; return 0; fi
   DEVICE_REC=gpu
   if [ "$VRAM_GB" -lt 12 ]; then PRESET_REC=$TURBO
   elif [ "$DOCKER_GB" -ge 20 ]; then PRESET_REC=1
@@ -399,7 +400,8 @@ EOF
   if [ "$2" = cpu ]; then
     echo " Memory: what Docker needs. On the CPU, each image takes several minutes."
   else
-    echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM, at the same speed."
+    echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,"
+    echo " slower with less."
     echo " Times: one 1024x1024 image on an RTX 3080 Ti."
   fi
   echo " 1 and 2 use the uncensored model. $TURBO uses the official Turbo model: much faster, weaker at small text."
@@ -426,7 +428,7 @@ encoder_gb() {
 }
 DECODER_GB=0.7
 # part_default PLACE image|te|dec HOST: the menu number for a saved place. HOST is the first GPU of the image model.
-# Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else
+# Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU with 8-19 GB (else
 # that GPU); the image model's GPU for the image decoder.
 part_default() {
   case "$2:$1" in
@@ -439,7 +441,7 @@ part_default() {
   esac
   case "$2" in
     image) first_gpu ;;
-    te) if [ "$(gpu_gb "$3")" -lt 20 ]; then echo "$GPU_COUNT"; else echo "$3"; fi ;;
+    te) if [ "$(gpu_gb "$3")" -ge 8 ] && [ "$(gpu_gb "$3")" -lt 20 ]; then echo "$GPU_COUNT"; else echo "$3"; fi ;;
     dec) echo "$3" ;;
   esac
 }
@@ -453,7 +455,9 @@ place_part() {
   case "$3" in
     image) echo "  $n) Several GPUs (split it)" ;;
     te)
-      if [ "$(gpu_gb "$5")" -lt 20 ]; then rec="  <- recommended"; fi
+      if [ "$(gpu_gb "$5")" -lt 8 ]; then rec="  (needs 8 GB or more on GPU $5)"
+      elif [ "$(gpu_gb "$5")" -lt 20 ]; then rec="  <- recommended"
+      fi
       echo "  $n) RAM: the weights stay in RAM, it runs on GPU $5$rec"
       echo "  $((n + 1))) CPU: $(cpu_name) (slow)" ;;
     dec) echo "  $n) CPU: $(cpu_name) (slow)" ;;
@@ -466,7 +470,11 @@ place_part() {
         if [ -n "$(gpu_gb "$ANSWER")" ]; then PLACE=$ANSWER; return 0; fi
         case "$3:$((ANSWER - n))" in
           image:0) pick_gpus; return 0 ;;
-          te:0) PLACE=ram; return 0 ;;
+          te:0)
+            # With less than 8 GB the explicit RAM setting stops the engine's auto-fit, and images fail.
+            if [ "$(gpu_gb "$5")" -ge 8 ]; then PLACE=ram; return 0; fi
+            echo "The text encoder in RAM needs 8 GB or more on GPU $5. Choose a GPU or the CPU."
+            continue ;;
           te:1|dec:0) PLACE=cpu; return 0 ;;
         esac ;;
     esac
@@ -515,6 +523,19 @@ gpu_warnings() {
       if (need > $3 - 2) need = fit + work   # auto-fit keeps the text encoder and decoder weights in RAM
       if (files > 0 && need > $3 - 2)
         printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %d GB.\n", $1, $2, $3, int(need + 0.5) }'
+}
+# slow_note GPU PRESET_LINE: on one GPU, a note when the model does not fit in the GPU's limit even with the text
+# encoder's and the decoder's weights in RAM (the image model, about 0.4 GB for those two, and the working memory of the
+# largest step, the decoder's 4 GB at 1024x1024). The engine then keeps part of the image model in RAM or decodes in
+# tiles, so each image takes longer (measured on a real RTX 3080 10 GB: the decoder fell back to tiles).
+slow_note() {
+  local gb cap
+  gb=$(gpu_gb "$1"); cap=$gb
+  if [ "$gb" -lt 20 ]; then cap=$((gb - 2)); fi
+  if awk -v i="$(image_gb "$2")" -v c="$cap" 'BEGIN { exit !(i + 0.4 + 4 > c) }'; then
+    echo
+    echo "    This GPU is small for the whole model: the server keeps part of it in RAM, so each image takes longer."
+  fi
 }
 # show_warnings IMG TE DEC PRESET_LINE: print the memory warnings, if any. True when there were some.
 show_warnings() {
@@ -631,16 +652,20 @@ run_setup() {
     total=$(printf '%s\n' "$GPU_ROWS" | awk -F'|' '{ s += $3 } END { print s + 0 }')
     while :; do
       choose_gpus "$gpu_default"
-      if [ "$VRAM_GB" -ge 8 ] || [ "$GPU_COUNT" -eq 1 ] || [ "$total" -lt 8 ]; then break; fi
+      if [ "$VRAM_GB" -ge 4 ] || [ "$GPU_COUNT" -eq 1 ] || [ "$total" -lt 4 ]; then break; fi
       echo
-      echo "That GPU has only $VRAM_GB GB of memory (8 GB or more is needed). Choose another GPU or the split."
+      echo "That GPU has only $VRAM_GB GB of memory (4 GB or more is needed). Choose another GPU or the custom load."
       gpu_default=$GPU_COUNT
     done
-    if [ "$VRAM_GB" -lt 8 ]; then
-      cpu_ok "That GPU has only $VRAM_GB GB of memory (8 GB or more is needed), so the server can only run on the CPU."
+    if [ "$VRAM_GB" -lt 4 ]; then
+      cpu_ok "That GPU has only $VRAM_GB GB of memory (4 GB or more is needed), so the server can only run on the CPU."
+    elif [ "$VRAM_GB" -lt 8 ]; then
+      echo
+      echo "Note: with less than 8 GB, the server keeps most of the model in RAM. Use choice $TURBO (Turbo). Each image"
+      echo "takes longer, and Docker needs about 16 GB of memory."
     elif [ "$VRAM_GB" -lt 12 ]; then
       echo
-      echo "Note: GPUs with less than 12 GB have not been tested. Choice $TURBO is the most likely to fit."
+      echo "Note: choice $TURBO (Turbo) fits this GPU best."
     fi
   fi
   if [ "$DOCKER_GB" -gt 0 ] && [ "$DOCKER_GB" -lt 16 ]; then
@@ -656,7 +681,8 @@ run_setup() {
     fi
   fi
   recommend
-  # Step 3: the model. On one GPU, the same memory check as for a split.
+  # Step 3: the model. On one GPU the engine always fits the model (auto-fit), so there is only a note when it
+  # will be slower; a custom load gets the memory check (split_gpus).
   while :; do
     echo
     if [ "$DEVICE_REC" = cpu ]; then echo "Which model do you want to use? (on the CPU)"
@@ -672,14 +698,11 @@ run_setup() {
     else pick_preset "$PRESET_COUNT" "$PRESET_REC"
     fi
     if [ "$CHOICE" -gt "$PRESET_COUNT" ]; then p=$CUR_CHOICE; else p=$(preset "$CHOICE"); fi
-    if [ "$DEVICE_REC" != gpu ] || [ "${SPLIT:-0}" = 1 ]; then break; fi
-    PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG
-    if ! show_warnings "$PLACE_IMG" "$PLACE_TE" "$PLACE_DEC" "$p"; then break; fi
-    echo
-    echo "  1) Confirm"
-    echo "  2) Choose another model"
-    read_choice 2 1
-    if [ "$CHOICE" = 1 ]; then break; fi
+    if [ "$DEVICE_REC" = gpu ] && [ "${SPLIT:-0}" != 1 ]; then
+      PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG
+      slow_note "$PLACE_IMG" "$p"
+    fi
+    break
   done
   # Step 3b: the custom load, now that the model is known.
   if [ "$DEVICE_REC" = gpu ] && [ "${SPLIT:-0}" = 1 ]; then split_gpus "$p"; fi
