@@ -140,7 +140,8 @@ current_model() {
   else echo "custom ($CUR_MODEL_TEXT)"
   fi
 }
-# read_current: the saved device and GPU places (CUR_DEVICE, CUR_IMG "0" or "0 2", CUR_TE and CUR_DEC "2" or "cpu").
+# read_current: the saved device and GPU places (CUR_DEVICE, CUR_IMG "0" or "0 2", CUR_TE "2", "ram" or "cpu",
+# CUR_DEC "2" or "cpu").
 read_current() {
   CUR_DEVICE=; CUR_IMG=; CUR_TE=; CUR_DEC=
   if [ ! -f config.yaml ]; then return 0; fi
@@ -149,6 +150,8 @@ read_current() {
   CUR_IMG=$(yaml_in gpu diffusion | tr -d '[]' | tr ',' ' ' | tr -s ' ' | sed 's/^ //; s/ $//'); CUR_IMG=${CUR_IMG:-0}
   CUR_TE=$(yaml_in gpu text_encoder); CUR_TE=${CUR_TE:-${CUR_IMG%% *}}
   CUR_DEC=$(yaml_in gpu vae); CUR_DEC=${CUR_DEC:-${CUR_IMG%% *}}
+  # offload: {text_encoder: cpu} keeps the text encoder's weights in RAM while it runs on its GPU.
+  case "$(yaml_in gpu offload)" in *text_encoder*cpu*) if [ "$CUR_TE" != cpu ]; then CUR_TE=ram; fi ;; esac
 }
 
 # --- this computer ----------------------------------------------------------------------------------------------------
@@ -194,25 +197,40 @@ cpu_name() {
   echo "${n:-your CPU}"
 }
 gpu_label() { printf '%s\n' "$GPU_ROWS" | awk -F'|' -v i="$1" '$1 == i { print "GPU " $1 " (" $2 ", " $3 " GB)"; exit }'; }
+# place_label PLACE [IMAGE_GPUS]: "GPU 2 (NVIDIA ..., 12 GB)", "CPU (...)" or, for the text encoder, "RAM, runs on GPU 2".
 place_label() {
   local i out=
   if [ "$1" = cpu ]; then echo "CPU ($(cpu_name))"; return 0; fi
+  if [ "$1" = ram ]; then echo "RAM, runs on GPU ${2%% *}"; return 0; fi
   for i in $1; do out="${out:+$out + }$(gpu_label "$i")"; done
   echo "$out"
 }
-# place_short PLACE: "CPU", "GPU 2" or "GPU 0 + GPU 2".
-place_short() { if [ "$1" = cpu ]; then echo CPU; else echo "GPU $(printf '%s' "$1" | sed 's/ / + GPU /g')"; fi; }
+# place_short PLACE: "CPU", "RAM", "GPU 2" or "GPU 0 + GPU 2".
+place_short() {
+  case "$1" in cpu) echo CPU ;; ram) echo RAM ;; *) echo "GPU $(printf '%s' "$1" | sed 's/ / + GPU /g')" ;; esac
+}
+# parts_text IMG TE DEC: "image model on GPU 0 + GPU 2, text encoder in RAM, image decoder on GPU 2".
+parts_text() {
+  local te
+  case "$2" in ram) te="text encoder in RAM" ;; *) te="text encoder on $(place_short "$2")" ;; esac
+  echo "image model on $(place_short "$1"), $te, image decoder on $(place_short "$3")"
+}
 # device_text: where the server runs, from config.yaml: "CPU", "GPU 2 (NVIDIA GeForce RTX 3080 Ti, 12 GB)" or a split.
 # Needs detect for the GPU names.
 device_text() {
   local one
   read_current
   if [ "$CUR_DEVICE" = cpu ]; then echo CPU; return 0; fi
-  if [ "$CUR_IMG" = "$CUR_TE" ] && [ "$CUR_TE" = "$CUR_DEC" ]; then
-    one=$(gpu_label "$CUR_IMG"); echo "${one:-GPU $CUR_IMG}"; return 0
-  fi
-  echo "image model on $(place_short "$CUR_IMG"), text encoder on $(place_short "$CUR_TE"), image decoder on $(
-    place_short "$CUR_DEC")"
+  case "$CUR_IMG" in
+    *' '*) ;;
+    *)
+      if [ "$CUR_DEC" = "$CUR_IMG" ] && { [ "$CUR_TE" = "$CUR_IMG" ] || [ "$CUR_TE" = ram ]; }; then
+        one=$(gpu_label "$CUR_IMG"); one=${one:-GPU $CUR_IMG}
+        if [ "$CUR_TE" = ram ]; then echo "$one, text encoder in RAM"; else echo "$one"; fi
+        return 0
+      fi ;;
+  esac
+  parts_text "$CUR_IMG" "$CUR_TE" "$CUR_DEC"
 }
 show_settings() {
   echo "    Model:  $(current_model)"
@@ -259,15 +277,16 @@ check_docker() {
 }
 
 # --- step 2: which GPU ------------------------------------------------------------------------------------------------
-# choose_gpus DEFAULT: show the GPUs; with more than one, ask which one to use. Sets SPLIT and PLACE_IMG. The last
-# choice, split, is set up after the model is chosen (split_gpus), because how to split depends on the model's size.
+# choose_gpus DEFAULT: show the GPUs; with more than one, ask which one to use. Sets SPLIT and PLACE_IMG. A GPU gets
+# every part of the model. The last choice, custom load, is set up after the model is chosen (split_gpus), because
+# where the parts fit depends on the model's size.
 choose_gpus() {
   local idx name gb
   SPLIT=0
   if [ "$GPU_COUNT" -eq 1 ]; then echo "    GPU: $GPU_NAME, $VRAM_GB GB"; PLACE_IMG=$GPU_INDEX; return 0; fi
   echo "    GPUs found:"
   printf '%s\n' "$GPU_ROWS" | while IFS='|' read -r idx name gb; do echo "      $idx) $name, $gb GB"; done
-  echo "      $GPU_COUNT) Split the model across several GPUs"
+  echo "      $GPU_COUNT) Custom load (multi-GPU and CPU)"
   echo
   echo "Which GPU should the image server use?"
   while :; do
@@ -278,7 +297,7 @@ choose_gpus() {
         if [ "$ANSWER" -eq "$GPU_COUNT" ]; then
           SPLIT=1
           use_gpus "$(printf '%s\n' "$GPU_ROWS" | cut -d'|' -f1 | tr '\n' ' ' | sed 's/ $//')"
-          echo "    The split is set up after you choose the model."
+          echo "    The custom load is set up after you choose the model."
           return 0
         fi
         if [ -n "$(gpu_gb "$ANSWER")" ]; then use_gpus "$ANSWER"; PLACE_IMG=$ANSWER; return 0; fi ;;
@@ -349,33 +368,52 @@ image_gb() {
 }
 encoder_gb() { case "$(pf "$1" 4)" in Q8_0) echo 8.7 ;; F16) echo 16.4 ;; *) echo 5.0 ;; esac; }
 DECODER_GB=0.7
-# part_default PLACE multi|cpu: the menu number for a saved place (the first GPU when it is not valid here).
+# part_default PLACE image|te|dec HOST: the menu number for a saved place. HOST is the first GPU of the image model.
+# Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else
+# that GPU); the image model's GPU for the image decoder.
 part_default() {
-  case "$1" in
-    *' '*) if [ "$2" = multi ]; then echo "$GPU_COUNT"; return 0; fi ;;
-    cpu) if [ "$2" = cpu ]; then echo "$GPU_COUNT"; return 0; fi ;;
+  case "$2:$1" in
+    image:*' '*) echo "$GPU_COUNT"; return 0 ;;
+    te:ram) echo "$GPU_COUNT"; return 0 ;;
+    te:cpu) echo $((GPU_COUNT + 1)); return 0 ;;
+    dec:cpu) echo "$GPU_COUNT"; return 0 ;;
+    *:*' '*|*:cpu|*:ram|*:) ;;
     *) if [ -n "$(gpu_gb "$1")" ]; then echo "$1"; return 0; fi ;;
   esac
-  first_gpu
+  case "$2" in
+    image) first_gpu ;;
+    te) if [ "$(gpu_gb "$3")" -lt 20 ]; then echo "$GPU_COUNT"; else echo "$3"; fi ;;
+    dec) echo "$3" ;;
+  esac
 }
-# place_part NAME GB multi|cpu DEFAULT: ask where one part runs. Sets PLACE: "cpu", one GPU number, or several.
+# place_part NAME GB image|te|dec DEFAULT HOST: ask where one part runs. Sets PLACE: a GPU number, several (image
+# model), "ram" (text encoder: weights in RAM, runs on HOST) or "cpu".
 place_part() {
-  local idx name gb extra
-  extra=$GPU_COUNT
+  local idx name gb n=$GPU_COUNT rec=
   echo
   echo "$1 ($2 GB): where should it run?"
   printf '%s\n' "$GPU_ROWS" | while IFS='|' read -r idx name gb; do echo "  $idx) GPU $idx: $name, $gb GB"; done
-  if [ "$3" = multi ]; then echo "  $extra) Several GPUs (split it)"; else echo "  $extra) CPU: $(cpu_name)"; fi
+  case "$3" in
+    image) echo "  $n) Several GPUs (split it)" ;;
+    te)
+      if [ "$(gpu_gb "$5")" -lt 20 ]; then rec="  <- recommended"; fi
+      echo "  $n) RAM: the weights stay in RAM, it runs on GPU $5$rec"
+      echo "  $((n + 1))) CPU: $(cpu_name) (slow)" ;;
+    dec) echo "  $n) CPU: $(cpu_name) (slow)" ;;
+  esac
   while :; do
     ask "Type a number and press Enter" "$4"
     case "$ANSWER" in
       *[!0-9]*|'') ;;
       *)
         if [ -n "$(gpu_gb "$ANSWER")" ]; then PLACE=$ANSWER; return 0; fi
-        if [ "$ANSWER" -eq "$extra" ] && [ "$3" = cpu ]; then PLACE=cpu; return 0; fi
-        if [ "$ANSWER" -eq "$extra" ] && [ "$3" = multi ]; then pick_gpus; return 0; fi ;;
+        case "$3:$((ANSWER - n))" in
+          image:0) pick_gpus; return 0 ;;
+          te:0) PLACE=ram; return 0 ;;
+          te:1|dec:0) PLACE=cpu; return 0 ;;
+        esac ;;
     esac
-    echo "Please type a number from 0 to $extra."
+    if [ "$3" = te ]; then echo "Please type a number from 0 to $((n + 1))."; else echo "Please type a number from 0 to $n."; fi
   done
 }
 # pick_gpus: two or more GPUs for the image model (the saved ones are the default). Sets PLACE.
@@ -400,22 +438,24 @@ pick_gpus() {
     echo "Please type two or more different GPU numbers from the list, for example $all."
   done
 }
-# gpu_warnings IMG TE DEC PRESET_LINE: a line for each GPU that may run out of memory with these places.
-# A GPU needs its model files plus the working memory of the largest step that runs on it (the steps run one after
-# another): the image model about 3 GB, the image decoder about 4 GB (1024x1024), the text encoder 1.5-2.2 GB. On a
-# GPU under 20 GB the text encoder's weights stay in RAM (about 0.2 GB on the GPU). The limit is the memory minus 2 GB.
-# Measured on a 12 GB GPU: Best quality and Turbo fit in 10 GB; a 5 GB image model makes the decoder fall back to tiles.
+# gpu_warnings IMG TE DEC PRESET_LINE: a line for each GPU that may run out of memory with these places (TE "ram":
+# its weights in RAM, it runs on the first GPU of IMG). A GPU needs its model files plus the working memory of the
+# largest step that runs on it (the steps run one after another): the image model about 3 GB, the image decoder about
+# 4 GB (1024x1024), the text encoder 1.5-2.2 GB. When the files do not fit, the engine's auto-fit keeps the weights of
+# the text encoder and the decoder in RAM by itself (about 0.2 GB each on the GPU), at the same speed. The limit is the
+# memory minus 2 GB. Measured on a 12 GB GPU: Turbo with every part on the GPU runs in 11.5 s (auto-fit moved the text
+# encoder and decoder weights to RAM); a 5 GB image model makes the decoder fall back to tiles.
 gpu_warnings() {
   local ig eg
   ig=$(image_gb "$4"); eg=$(encoder_gb "$4")
   printf '%s\n' "$GPU_ROWS" | awk -F'|' -v img="$1" -v te="$2" -v dec="$3" -v ig="$ig" -v eg="$eg" '
-    { n = split(img, a, " "); files = 0; work = 0
-      for (j = 1; j <= n; j++) if (a[j] == $1) { files += ig / n; work = 3 }
-      if (te == $1) {
-        if ($3 < 20) { files += 0.2; if (work < 1.5) work = 1.5 } else { files += eg; if (work < 2.2) work = 2.2 }
-      }
-      if (dec == $1) { files += 0.7; if (work < 4) work = 4 }
+    { n = split(img, a, " "); files = 0; fit = 0; work = 0
+      for (j = 1; j <= n; j++) if (a[j] == $1) { files += ig / n; fit += ig / n; work = 3 }
+      if (te == "ram" && a[1] == $1) { files += 0.2; fit += 0.2; if (work < 1.5) work = 1.5 }
+      if (te == $1) { files += eg; fit += 0.2; if (work < 2.2) work = 2.2 }
+      if (dec == $1) { files += 0.7; fit += 0.2; if (work < 4) work = 4 }
       need = files + work
+      if (need > $3 - 2) need = fit + work   # auto-fit keeps the text encoder and decoder weights in RAM
       if (files > 0 && need > $3 - 2)
         printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %d GB.\n", $1, $2, $3, int(need + 0.5) }'
 }
@@ -429,22 +469,22 @@ show_warnings() {
   echo "    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error."
   return 0
 }
-# split_gpus PRESET_LINE: place the image model, the text encoder and the image decoder one by one, then show
-# all three with a warning for any GPU that may run out of memory, and confirm or start over.
+# split_gpus PRESET_LINE: the custom load. Place the image model, the text encoder and the image decoder one by one,
+# then show all three with a warning for any GPU that may run out of memory, and confirm or start over.
 # Sets PLACE_IMG, PLACE_TE and PLACE_DEC.
 split_gpus() {
   local img te dec ig eg
   ig=$(image_gb "$1"); eg=$(encoder_gb "$1")
   echo
-  echo "Split $(pf "$1" 1): choose where each part of the model runs."
+  echo "Custom load for $(pf "$1" 1): choose where each part of the model runs."
   while :; do
-    place_part "Image model" "$ig" multi "$(part_default "$CUR_IMG" multi)"; img=$PLACE
-    place_part "Text encoder" "$eg" cpu "$(part_default "$CUR_TE" cpu)"; te=$PLACE
-    place_part "Image decoder" "$DECODER_GB" cpu "$(part_default "$CUR_DEC" cpu)"; dec=$PLACE
+    place_part "Image model" "$ig" image "$(part_default "$CUR_IMG" image)"; img=$PLACE
+    place_part "Text encoder" "$eg" te "$(part_default "$CUR_TE" te "${img%% *}")" "${img%% *}"; te=$PLACE
+    place_part "Image decoder" "$DECODER_GB" dec "$(part_default "$CUR_DEC" dec "${img%% *}")"; dec=$PLACE
     echo
-    echo "Your split:"
+    echo "Your custom load:"
     printf '    %-24s %s\n' "Image model ($ig GB):" "$(place_label "$img")"
-    printf '    %-24s %s\n' "Text encoder ($eg GB):" "$(place_label "$te")"
+    printf '    %-24s %s\n' "Text encoder ($eg GB):" "$(place_label "$te" "$img")"
     printf '    %-24s %s\n' "Image decoder ($DECODER_GB GB):" "$(place_label "$dec")"
     show_warnings "$img" "$te" "$dec" "$1" || true
     echo
@@ -461,12 +501,12 @@ split_gpus() {
 # a memory limit for each GPU under 20 GB and the model. Other settings in config.yaml are kept. Sets GPU_NOTE, a line
 # that describes the GPU settings.
 write_config() {
-  local i gb used caps= limits= cache=auto offload=auto
+  local i gb te used caps= limits= cache=auto offload=auto
   GPU_NOTE=
   if [ -f config.yaml ]; then cp config.yaml "$1"; else cp config.example.yaml "$1"; fi || return 1
   set_yaml "$1" device "$DEVICE_REC" || return 1
   if [ "$DEVICE_REC" = gpu ]; then
-    used=$(printf '%s\n' $PLACE_IMG $PLACE_TE $PLACE_DEC | grep -v '^cpu$' | sort -un | tr '\n' ' ')
+    used=$(printf '%s\n' $PLACE_IMG $PLACE_TE $PLACE_DEC | grep -v '^cpu$' | grep -v '^ram$' | sort -un | tr '\n' ' ')
     for i in $used; do
       gb=$(gpu_gb "$i")
       if [ "${gb:-0}" -lt 20 ]; then
@@ -474,20 +514,22 @@ write_config() {
       fi
     done
     if [ -n "$caps" ]; then cache=q8_0; fi
-    # On a GPU under 20 GB the text encoder's weights stay in RAM.
-    if [ "$PLACE_TE" != cpu ] && [ "$(gpu_gb "$PLACE_TE")" -lt 20 ]; then offload="{text_encoder: cpu}"; fi
+    # Text encoder in RAM: it runs on the image model's (first) GPU, its weights stay in RAM. Otherwise auto: the
+    # engine keeps weights in RAM only when they do not fit.
+    te=$PLACE_TE
+    if [ "$PLACE_TE" = ram ]; then te=${PLACE_IMG%% *}; offload="{text_encoder: cpu}"; fi
     set_yaml "$1" diffusion "[$(printf '%s' "$PLACE_IMG" | sed 's/ /, /g')]" gpu &&
-      set_yaml "$1" text_encoder "$PLACE_TE" gpu && set_yaml "$1" vae "$PLACE_DEC" gpu &&
+      set_yaml "$1" text_encoder "$te" gpu && set_yaml "$1" vae "$PLACE_DEC" gpu &&
       set_yaml "$1" max_vram_gb "{$caps}" gpu && set_yaml "$1" offload "$offload" gpu &&
       set_yaml "$1" prefix_cache_type "$cache" generation || return 1
-    if [ "$PLACE_IMG" = "$PLACE_TE" ] && [ "$PLACE_TE" = "$PLACE_DEC" ]; then
+    if [ "$PLACE_IMG" = "$PLACE_DEC" ] && { [ "$PLACE_TE" = "$PLACE_IMG" ] || [ "$PLACE_TE" = ram ]; } &&
+       [ "$PLACE_IMG" = "${PLACE_IMG%% *}" ]; then
       gb=$(gpu_gb "$PLACE_IMG")
-      if [ "$gb" -lt 20 ]; then GPU_NOTE="GPU $PLACE_IMG (limited to $((gb - 2)) GB); text encoder weights in RAM"
-      else GPU_NOTE="GPU $PLACE_IMG"
-      fi
+      GPU_NOTE="GPU $PLACE_IMG"
+      if [ "$gb" -lt 20 ]; then GPU_NOTE="$GPU_NOTE (limited to $((gb - 2)) GB)"; fi
+      if [ "$PLACE_TE" = ram ]; then GPU_NOTE="$GPU_NOTE, text encoder in RAM"; fi
     else
-      GPU_NOTE="image model on $(place_short "$PLACE_IMG"), text encoder on $(place_short "$PLACE_TE"), image decoder on $(
-        place_short "$PLACE_DEC")${limits:+ ($limits)}"
+      GPU_NOTE="$(parts_text "$PLACE_IMG" "$PLACE_TE" "$PLACE_DEC")${limits:+ ($limits)}"
     fi
   fi
   # A custom model (kept in the setup) stays as it is in config.yaml.
@@ -525,7 +567,7 @@ run_setup() {
   else
     gpu_default=$(first_gpu)
     if [ "$CUR_DEVICE" = gpu ]; then
-      if [ "$CUR_IMG" != "$CUR_TE" ] || [ "$CUR_TE" != "$CUR_DEC" ]; then gpu_default=$GPU_COUNT
+      if [ "$CUR_IMG" != "$CUR_TE" ] || [ "$CUR_TE" != "$CUR_DEC" ]; then gpu_default=$GPU_COUNT   # a custom load
       elif [ -n "$(gpu_gb "$CUR_IMG")" ]; then gpu_default=$CUR_IMG
       fi
     fi
@@ -579,7 +621,7 @@ run_setup() {
     read_choice 2 1
     if [ "$CHOICE" = 1 ]; then break; fi
   done
-  # Step 3b: the split, now that the model is known. A split that puts every part on one GPU is that GPU.
+  # Step 3b: the custom load, now that the model is known.
   if [ "$DEVICE_REC" = gpu ] && [ "${SPLIT:-0}" = 1 ]; then split_gpus "$p"; fi
   # Write config.yaml as the last step: Ctrl+C before this leaves config.yaml as it was. It is rewritten in place
   # (same file, same owner): the container mounts this file.

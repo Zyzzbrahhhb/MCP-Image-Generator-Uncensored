@@ -148,7 +148,8 @@ function Get-CurrentModel {
     $custom = [pscustomobject]@{ Name = 'custom'; Variant = $v; Quant = $q; TE = $t; GB = ''; Sec = ''; Needs = '' }
     [pscustomobject]@{ Text = "custom ($d)"; Index = 0; Choice = $custom }
 }
-# The saved device and GPU places: Device, Img ("0" or "0 2"), TE and Dec ("2" or "cpu"). Empty without config.yaml.
+# The saved device and GPU places: Device, Img ("0" or "0 2"), TE ("2", "ram" or "cpu") and Dec ("2" or "cpu").
+# Empty without config.yaml.
 function Read-Current {
     $c = @{ Device = ''; Img = ''; TE = ''; Dec = '' }
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'config.yaml'))) { return $c }
@@ -159,6 +160,8 @@ function Read-Current {
     $first = ($c.Img -split ' ')[0]
     $c.TE = Get-YamlValue $y 'gpu' 'text_encoder'; if (-not $c.TE) { $c.TE = $first }
     $c.Dec = Get-YamlValue $y 'gpu' 'vae'; if (-not $c.Dec) { $c.Dec = $first }
+    # offload: {text_encoder: cpu} keeps the text encoder's weights in RAM while it runs on its GPU.
+    if ((Get-YamlValue $y 'gpu' 'offload') -match 'text_encoder\s*:\s*cpu' -and $c.TE -ne 'cpu') { $c.TE = 'ram' }
     $c
 }
 
@@ -192,21 +195,31 @@ function Get-CpuName {
     if ($n) { $n.Trim() } else { 'your CPU' }
 }
 function Get-GpuLabel($m, [int]$Index) { $g = Get-Gpu $m $Index; "GPU $($g.Index) ($($g.Name), $($g.GB) GB)" }
-function Get-PlaceLabel($m, [string]$Place) {
+# "GPU 2 (NVIDIA ..., 12 GB)", "CPU (...)" or, for the text encoder, "RAM, runs on GPU 2" (-Img: the image model's GPUs).
+function Get-PlaceLabel($m, [string]$Place, [string]$Img = '') {
     if ($Place -eq 'cpu') { return "CPU ($(Get-CpuName))" }
+    if ($Place -eq 'ram') { return "RAM, runs on GPU $(($Img -split ' ')[0])" }
     (@($Place -split ' ') | ForEach-Object { Get-GpuLabel $m ([int]$_) }) -join ' + '
 }
-# "CPU", "GPU 2" or "GPU 0 + GPU 2".
-function Get-PlaceShort([string]$Place) { if ($Place -eq 'cpu') { 'CPU' } else { 'GPU ' + (($Place -split ' ') -join ' + GPU ') } }
+# "CPU", "RAM", "GPU 2" or "GPU 0 + GPU 2".
+function Get-PlaceShort([string]$Place) {
+    switch ($Place) { 'cpu' { 'CPU' } 'ram' { 'RAM' } default { 'GPU ' + (($Place -split ' ') -join ' + GPU ') } }
+}
+# "image model on GPU 0 + GPU 2, text encoder in RAM, image decoder on GPU 2".
+function Get-PartsText([string]$Img, [string]$TE, [string]$Dec) {
+    $t = if ($TE -eq 'ram') { 'text encoder in RAM' } else { "text encoder on $(Get-PlaceShort $TE)" }
+    "image model on $(Get-PlaceShort $Img), $t, image decoder on $(Get-PlaceShort $Dec)"
+}
 # Where the server runs, from config.yaml: "CPU", "GPU 2 (NVIDIA GeForce RTX 3080 Ti, 12 GB)" or a split.
 function Get-DeviceText($m) {
     $c = Read-Current
     if ($c.Device -eq 'cpu') { return 'CPU' }
-    if ($c.Img -eq $c.TE -and $c.TE -eq $c.Dec) {
-        if ($c.Img -match '^\d+$' -and (Get-Gpu $m ([int]$c.Img))) { return Get-GpuLabel $m ([int]$c.Img) }
-        return "GPU $($c.Img)"
+    if ($c.Img -notmatch ' ' -and $c.Dec -eq $c.Img -and ($c.TE -eq $c.Img -or $c.TE -eq 'ram')) {
+        $one = if ($c.Img -match '^[0-9]+$' -and (Get-Gpu $m ([int]$c.Img))) { Get-GpuLabel $m ([int]$c.Img) } else { "GPU $($c.Img)" }
+        if ($c.TE -eq 'ram') { return "$one, text encoder in RAM" }
+        return $one
     }
-    "image model on $(Get-PlaceShort $c.Img), text encoder on $(Get-PlaceShort $c.TE), image decoder on $(Get-PlaceShort $c.Dec)"
+    Get-PartsText $c.Img $c.TE $c.Dec
 }
 function Show-Settings($m) {
     Write-Host "    Model:  $((Get-CurrentModel).Text)"
@@ -240,7 +253,8 @@ function Test-Docker {
 
 # --- step 2: which GPU ----------------------------------------------------------------------------------------------
 # Show the GPUs; with more than one, ask which one to use. Returns @{ List = GPU numbers; Split = $true/$false }.
-# The last choice, split, is set up after the model is chosen (Invoke-Split), because it depends on the model's size.
+# A GPU gets every part of the model. The last choice, custom load, is set up after the model is chosen
+# (Invoke-Split), because where the parts fit depends on the model's size.
 function Select-Gpu($m, [string]$Default) {
     if ($m.GpuCount -eq 1) {
         Write-Host "    GPU: $($m.Gpus[0].Name), $($m.Gpus[0].GB) GB"
@@ -248,14 +262,14 @@ function Select-Gpu($m, [string]$Default) {
     }
     Write-Host '    GPUs found:'
     foreach ($g in $m.Gpus) { Write-Host "      $($g.Index)) $($g.Name), $($g.GB) GB" }
-    Write-Host "      $($m.GpuCount)) Split the model across several GPUs"
+    Write-Host "      $($m.GpuCount)) Custom load (multi-GPU and CPU)"
     Write-Host ''
     Write-Host 'Which GPU should the image server use?'
     while ($true) {
         $a = Read-Answer 'Type a number and press Enter' $Default
         if ($a -match '^[0-9]{1,2}$') {
             if ([int]$a -eq $m.GpuCount) {
-                Write-Host '    The split is set up after you choose the model.'
+                Write-Host '    The custom load is set up after you choose the model.'
                 return @{ List = @($m.Gpus | ForEach-Object { $_.Index }); Split = $true }
             }
             if (Get-Gpu $m ([int]$a)) { return @{ List = @([int]$a); Split = $false } }
@@ -314,28 +328,49 @@ function Get-ImageGB($Preset) {
 }
 function Get-EncoderGB($Preset) { switch ($Preset.TE) { 'Q8_0' { '8.7' } 'F16' { '16.4' } default { '5.0' } } }
 $DecoderGB = '0.7'
-# The menu number for a saved place (the first GPU when it is not valid here).
-function Get-PartDefault($m, [string]$Place, [switch]$Multi) {
-    if ($Place -match ' ') { if ($Multi) { return "$($m.GpuCount)" } }
-    elseif ($Place -eq 'cpu') { if (-not $Multi) { return "$($m.GpuCount)" } }
-    elseif ($Place -match '^\d+$' -and (Get-Gpu $m ([int]$Place))) { return $Place }
-    "$($m.Gpus[0].Index)"
+# The menu number for a saved place. Kind: image, te or dec. Host: the first GPU of the image model. Without a valid
+# saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else that GPU); the
+# image model's GPU for the image decoder.
+function Get-PartDefault($m, [string]$Place, [string]$Kind, [string]$HostGpu = '') {
+    $n = $m.GpuCount
+    if ($Kind -eq 'image' -and $Place -match ' ') { return "$n" }
+    if ($Kind -eq 'te' -and $Place -eq 'ram') { return "$n" }
+    if ($Kind -eq 'te' -and $Place -eq 'cpu') { return "$($n + 1)" }
+    if ($Kind -eq 'dec' -and $Place -eq 'cpu') { return "$n" }
+    if ($Place -match '^[0-9]+$' -and (Get-Gpu $m ([int]$Place))) { return $Place }
+    switch ($Kind) {
+        'image' { return "$($m.Gpus[0].Index)" }
+        'te' { if ((Get-Gpu $m ([int]$HostGpu)).GB -lt 20) { return "$n" } else { return $HostGpu } }
+        default { return $HostGpu }
+    }
 }
-# Ask where one part runs. Returns 'cpu', one GPU number, or several separated by spaces (only with -Multi).
-function Read-Place($m, [string]$Name, [string]$GB, [string]$Default, [string]$Saved, [switch]$Multi) {
-    $extra = $m.GpuCount
+# Ask where one part runs. Kind: image, te or dec. Returns a GPU number, several (image model, separated by spaces),
+# 'ram' (text encoder: weights in RAM, runs on HostGpu) or 'cpu'.
+function Read-Place($m, [string]$Name, [string]$GB, [string]$Kind, [string]$Default, [string]$Saved = '', [string]$HostGpu = '') {
+    $n = $m.GpuCount
     Write-Host ''
     Write-Host "$Name ($GB GB): where should it run?"
     foreach ($g in $m.Gpus) { Write-Host "  $($g.Index)) GPU $($g.Index): $($g.Name), $($g.GB) GB" }
-    if ($Multi) { Write-Host "  $extra) Several GPUs (split it)" } else { Write-Host "  $extra) CPU: $(Get-CpuName)" }
+    switch ($Kind) {
+        'image' { Write-Host "  $n) Several GPUs (split it)" }
+        'te' {
+            $rec = if ((Get-Gpu $m ([int]$HostGpu)).GB -lt 20) { '  <- recommended' } else { '' }
+            Write-Host "  $n) RAM: the weights stay in RAM, it runs on GPU $HostGpu$rec"
+            Write-Host "  $($n + 1)) CPU: $(Get-CpuName) (slow)"
+        }
+        default { Write-Host "  $n) CPU: $(Get-CpuName) (slow)" }
+    }
+    $max = if ($Kind -eq 'te') { $n + 1 } else { $n }
     while ($true) {
         $a = Read-Answer 'Type a number and press Enter' $Default
         if ($a -match '^[0-9]{1,2}$') {
             if (Get-Gpu $m ([int]$a)) { return "$([int]$a)" }
-            if ([int]$a -eq $extra -and -not $Multi) { return 'cpu' }
-            if ([int]$a -eq $extra -and $Multi) { return (Read-GpuList $m $Saved) }
+            $k = [int]$a - $n
+            if ($Kind -eq 'image' -and $k -eq 0) { return (Read-GpuList $m $Saved) }
+            if ($Kind -eq 'te' -and $k -eq 0) { return 'ram' }
+            if (($Kind -eq 'te' -and $k -eq 1) -or ($Kind -eq 'dec' -and $k -eq 0)) { return 'cpu' }
         }
-        Write-Host "Please type a number from 0 to $extra."
+        Write-Host "Please type a number from 0 to $max."
     }
 }
 # Two or more GPUs for the image model (the saved ones are the default).
@@ -352,23 +387,24 @@ function Read-GpuList($m, [string]$Saved) {
         Write-Host "Please type two or more different GPU numbers from the list, for example $all."
     }
 }
-# A line for each GPU that may run out of memory with these places.
-# A GPU needs its model files plus the working memory of the largest step that runs on it (the steps run one after
-# another): the image model about 3 GB, the image decoder about 4 GB (1024x1024), the text encoder 1.5-2.2 GB. On a
-# GPU under 20 GB the text encoder's weights stay in RAM (about 0.2 GB on the GPU). The limit is the memory minus 2 GB.
-# Measured on a 12 GB GPU: Best quality and Turbo fit in 10 GB; a 5 GB image model makes the decoder fall back to tiles.
+# A line for each GPU that may run out of memory with these places (TE 'ram': its weights in RAM, it runs on the
+# first GPU of Img). A GPU needs its model files plus the working memory of the largest step that runs on it (the steps
+# run one after another): the image model about 3 GB, the image decoder about 4 GB (1024x1024), the text encoder
+# 1.5-2.2 GB. When the files do not fit, the engine's auto-fit keeps the weights of the text encoder and the decoder in
+# RAM by itself (about 0.2 GB each on the GPU), at the same speed. The limit is the memory minus 2 GB. Measured on a
+# 12 GB GPU: Turbo with every part on the GPU runs in 11.5 s (auto-fit moved the text encoder and decoder weights to
+# RAM); a 5 GB image model makes the decoder fall back to tiles.
 function Get-GpuWarnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
     $ig = [double](Get-ImageGB $Preset); $eg = [double](Get-EncoderGB $Preset)
     $imgs = @($Img -split ' ')
     foreach ($g in $m.Gpus) {
-        $files = 0.0; $work = 0.0; $id = "$($g.Index)"
-        if ($imgs -contains $id) { $files += $ig / $imgs.Count; $work = 3 }
-        if ($TE -eq $id) {
-            if ($g.GB -lt 20) { $files += 0.2; $work = [math]::Max($work, 1.5) }
-            else { $files += $eg; $work = [math]::Max($work, 2.2) }
-        }
-        if ($Dec -eq $id) { $files += 0.7; $work = [math]::Max($work, 4) }
+        $files = 0.0; $fit = 0.0; $work = 0.0; $id = "$($g.Index)"
+        if ($imgs -contains $id) { $files += $ig / $imgs.Count; $fit += $ig / $imgs.Count; $work = 3 }
+        if ($TE -eq 'ram' -and $imgs[0] -eq $id) { $files += 0.2; $fit += 0.2; $work = [math]::Max($work, 1.5) }
+        if ($TE -eq $id) { $files += $eg; $fit += 0.2; $work = [math]::Max($work, 2.2) }
+        if ($Dec -eq $id) { $files += 0.7; $fit += 0.2; $work = [math]::Max($work, 4) }
         $need = $files + $work
+        if ($need -gt $g.GB - 2) { $need = $fit + $work }   # auto-fit keeps the text encoder and decoder weights in RAM
         if ($files -gt 0 -and $need -gt $g.GB - 2) {
             '    GPU {0} ({1}, {2} GB) may run out of memory: its parts need about {3} GB.' -f $g.Index, $g.Name, $g.GB,
                 [int][math]::Floor($need + 0.5)
@@ -384,20 +420,21 @@ function Show-Warnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
     Write-Host '    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.' -ForegroundColor Yellow
     $true
 }
-# Place the image model, the text encoder and the image decoder one by one, then show all three with a warning for
-# any GPU that may run out of memory, and confirm or start over. Returns @{ Img; TE; Dec }.
+# The custom load: place the image model, the text encoder and the image decoder one by one, then show all three with
+# a warning for any GPU that may run out of memory, and confirm or start over. Returns @{ Img; TE; Dec }.
 function Invoke-Split($m, $Preset, $Cur) {
     $ig = Get-ImageGB $Preset; $eg = Get-EncoderGB $Preset
     Write-Host ''
-    Write-Host "Split $($Preset.Name): choose where each part of the model runs."
+    Write-Host "Custom load for $($Preset.Name): choose where each part of the model runs."
     while ($true) {
-        $img = Read-Place $m 'Image model' $ig (Get-PartDefault $m $Cur.Img -Multi) $Cur.Img -Multi
-        $te = Read-Place $m 'Text encoder' $eg (Get-PartDefault $m $Cur.TE) ''
-        $dec = Read-Place $m 'Image decoder' $DecoderGB (Get-PartDefault $m $Cur.Dec) ''
+        $img = Read-Place $m 'Image model' $ig 'image' (Get-PartDefault $m $Cur.Img 'image') $Cur.Img
+        $hostGpu = ($img -split ' ')[0]
+        $te = Read-Place $m 'Text encoder' $eg 'te' (Get-PartDefault $m $Cur.TE 'te' $hostGpu) '' $hostGpu
+        $dec = Read-Place $m 'Image decoder' $DecoderGB 'dec' (Get-PartDefault $m $Cur.Dec 'dec' $hostGpu) '' $hostGpu
         Write-Host ''
-        Write-Host 'Your split:'
+        Write-Host 'Your custom load:'
         Write-Host ('    {0,-24} {1}' -f "Image model ($ig GB):", (Get-PlaceLabel $m $img))
-        Write-Host ('    {0,-24} {1}' -f "Text encoder ($eg GB):", (Get-PlaceLabel $m $te))
+        Write-Host ('    {0,-24} {1}' -f "Text encoder ($eg GB):", (Get-PlaceLabel $m $te $img))
         Write-Host ('    {0,-24} {1}' -f "Image decoder ($DecoderGB GB):", (Get-PlaceLabel $m $dec))
         Show-Warnings $m $img $te $dec $Preset | Out-Null
         Write-Host ''
@@ -408,30 +445,34 @@ function Invoke-Split($m, $Preset, $Cur) {
 }
 
 # --- saving the answers ---------------------------------------------------------------------------------------------
-# GPU settings in config.yaml text: the GPU places, a memory limit for each GPU under 20 GB, and the text encoder's
-# weights in RAM when it runs on such a GPU. Returns @{ Text; Note }.
+# GPU settings in config.yaml text: the GPU places and a memory limit for each GPU under 20 GB. TE 'ram': the text
+# encoder runs on the image model's (first) GPU with its weights in RAM. Otherwise offload auto: the engine keeps weights
+# in RAM only when they do not fit. Returns @{ Text; Note }.
 function Set-GpuConfig([string]$Text, $m, [string]$Img, [string]$TE, [string]$Dec) {
     $imgs = @($Img -split ' ')
-    $used = @(@($imgs + $TE + $Dec) | Where-Object { $_ -ne 'cpu' } | ForEach-Object { [int]$_ } | Sort-Object -Unique)
+    $used = @(@($imgs + $TE + $Dec) | Where-Object { $_ -ne 'cpu' -and $_ -ne 'ram' } | ForEach-Object { [int]$_ } |
+              Sort-Object -Unique)
     $caps = @(); $limits = @()
     foreach ($i in $used) {
         $gb = (Get-Gpu $m $i).GB
         if ($gb -lt 20) { $caps += "${i}: $($gb - 2)"; $limits += "GPU $i limited to $($gb - 2) GB" }
     }
-    $offload = 'auto'
-    if ($TE -ne 'cpu' -and (Get-Gpu $m ([int]$TE)).GB -lt 20) { $offload = '{text_encoder: cpu}' }
+    $offload = 'auto'; $teGpu = $TE
+    if ($TE -eq 'ram') { $offload = '{text_encoder: cpu}'; $teGpu = $imgs[0] }
     $cache = if ($caps.Count -gt 0) { 'q8_0' } else { 'auto' }
     $Text = Set-Yaml $Text 'diffusion' "[$($imgs -join ', ')]" 'gpu'
-    $Text = Set-Yaml $Text 'text_encoder' $TE 'gpu'
+    $Text = Set-Yaml $Text 'text_encoder' $teGpu 'gpu'
     $Text = Set-Yaml $Text 'vae' $Dec 'gpu'
     $Text = Set-Yaml $Text 'max_vram_gb' "{$($caps -join ', ')}" 'gpu'
     $Text = Set-Yaml $Text 'offload' $offload 'gpu'
     $Text = Set-Yaml $Text 'prefix_cache_type' $cache 'generation'
-    if ($Img -eq $TE -and $Img -eq $Dec) {
+    if ($imgs.Count -eq 1 -and $Dec -eq $Img -and ($TE -eq $Img -or $TE -eq 'ram')) {
         $i = [int]$Img; $gb = (Get-Gpu $m $i).GB
-        $note = if ($gb -lt 20) { "GPU $i (limited to $($gb - 2) GB); text encoder weights in RAM" } else { "GPU $i" }
+        $note = "GPU $i"
+        if ($gb -lt 20) { $note += " (limited to $($gb - 2) GB)" }
+        if ($TE -eq 'ram') { $note += ', text encoder in RAM' }
     } else {
-        $note = "image model on $(Get-PlaceShort $Img), text encoder on $(Get-PlaceShort $TE), image decoder on $(Get-PlaceShort $Dec)"
+        $note = Get-PartsText $Img $TE $Dec
         if ($limits.Count -gt 0) { $note += " ($($limits -join ', '))" }
     }
     @{ Text = $Text; Note = $note }
@@ -467,7 +508,7 @@ function Invoke-Setup {
     } else {
         $default = "$($m.Gpus[0].Index)"
         if ($cur.Device -eq 'gpu') {
-            if ($cur.Img -ne $cur.TE -or $cur.TE -ne $cur.Dec) { $default = "$($m.GpuCount)" }
+            if ($cur.Img -ne $cur.TE -or $cur.TE -ne $cur.Dec) { $default = "$($m.GpuCount)" }   # a custom load
             elseif ($cur.Img -match '^[0-9]+$' -and (Get-Gpu $m ([int]$cur.Img))) { $default = $cur.Img }
         }
         $total = (@($m.Gpus | ForEach-Object { $_.GB }) | Measure-Object -Sum).Sum
@@ -520,7 +561,7 @@ function Invoke-Setup {
         if ((Read-Choice 2 1) -eq 1) { break }
     }
 
-    # Step 3b: the split, now that the model is known. A split that puts every part on one GPU is that GPU.
+    # Step 3b: the custom load, now that the model is known.
     if ($sel -and $sel.Split) { $place = Invoke-Split $m $p $cur }
 
     # Build the whole file in memory and write it last: Ctrl+C before this point leaves config.yaml as it was.
