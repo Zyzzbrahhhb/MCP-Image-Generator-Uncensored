@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # no progress bar from Invoke-WebRequest
 $Root = Split-Path -Parent $PSScriptRoot
-Set-Location -Path $Root
+Set-Location -LiteralPath $Root   # -LiteralPath: a folder name may contain [ or ]
 $Launcher = "$Action.cmd"
 . (Join-Path $PSScriptRoot 'lib.ps1')
 
@@ -21,13 +21,13 @@ switch ($Action) {
         Write-Host 'Image Gen MCP'
         Test-Docker
         $mode = if ($Restart) { 'restart' } else { 'ask' }
-        if (Test-Path config.yaml) {
+        if (Test-Path -LiteralPath config.yaml) {
             Show-Settings (Get-Machine)
         } elseif (Test-Interactive) {
             Invoke-Setup
             $mode = 'restart'
         } else {
-            Copy-Item config.example.yaml config.yaml
+            Copy-Item -LiteralPath config.example.yaml -Destination (Join-Path $Root 'config.yaml')
             Write-Host '==> created config.yaml from config.example.yaml (run setup.cmd to choose the GPU and the model)'
         }
         Start-Server $mode $Build

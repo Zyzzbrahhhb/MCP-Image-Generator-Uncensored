@@ -70,8 +70,17 @@ set_yaml() {
     function top() { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:/) { cur = $0; sub(/[ \t]*:.*/, "", cur) } }
     BEGIN { pat = "^" ((s == "") ? "" : "[ \t]+") k "[ \t]*:" }
     NR == FNR {
+      # A key with no value and more-indented lines below it is a block list or map: not changed here.
+      if (want) {
+        if ($0 ~ /^[ \t]*(#.*)?\r?$/) next
+        match($0, /^[ \t]*/); if (RLENGTH > kin) bad = 1
+        want = 0
+      }
       top()
-      if ((s == "" || cur == s) && $0 ~ pat) has = 1
+      if ((s == "" || cur == s) && $0 ~ pat && !has) {
+        has = 1; r = $0; sub(pat "[ \t]*", "", r)
+        if (r ~ /^(#.*)?\r?$/) { want = 1; match($0, /^[ \t]*/); kin = RLENGTH }
+      }
       if (s != "" && $0 ~ ("^" s ":[ \t]*[{[]")) flow = 1
       next
     }
@@ -79,6 +88,7 @@ set_yaml() {
     { top() }
     has && !done && (s == "" || cur == s) && $0 ~ pat {
       match($0, pat "[ \t]*"); head = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1)
+      if (head !~ /[ \t]$/) head = head " "
       if (rest ~ /^\{/) sub(/^\{[^}]*\}/, "", rest)
       else if (rest ~ /^\[/) sub(/^\[[^]]*\]/, "", rest)
       else sub(/^[^ \t\r#]*/, "", rest)
@@ -105,20 +115,22 @@ yaml_in() {
   awk -v s="$1" -v k="$2" '
     /^[A-Za-z_]/ { cur = $0; sub(/[ \t]*:.*/, "", cur) }
     cur == s && $0 ~ "^[ \t]+" k "[ \t]*:" {
-      v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]*#.*/, "", v); gsub(/["\047\r]/, "", v); print v; exit }
+      v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]*#.*/, "", v); gsub(/["\047\r]/, "", v); sub(/[ \t]+$/, "", v)
+      print v; exit }
   ' config.yaml 2>/dev/null || true
 }
 # read_model: sets CUR_PRESET, the number of the model choice in config.yaml (0 = none of them, or no config.yaml),
-# and CUR_MODEL_TEXT ("uncensored Q4_K_M, text encoder Q8_0").
+# CUR_MODEL_TEXT ("uncensored Q4_K_M, text encoder Q8_0") and CUR_CHOICE (the model as a choice line).
 read_model() {
   local v q t
-  CUR_PRESET=0; CUR_MODEL_TEXT=
+  CUR_PRESET=0; CUR_MODEL_TEXT=; CUR_CHOICE=
   if [ ! -f config.yaml ]; then return 0; fi
   v=$(yaml_in model variant | tr '[:upper:]' '[:lower:]'); v=${v:-uncensored}
   q=$(yaml_in model quant | tr '[:lower:]' '[:upper:]' | sed 's/^AD-//'); q=${q:-Q4_K_M}
   case "$q" in Q4|Q4_K) q=Q4_K_M ;; Q5|Q5_K) q=Q5_K_M ;; Q6) q=Q6_K ;; Q8) q=Q8_0 ;; esac
   t=$(yaml_in model text_encoder_quant | tr '[:lower:]' '[:upper:]'); t=${t:-Q4_K_M}
   CUR_MODEL_TEXT="$v $q, text encoder $t"
+  CUR_CHOICE="custom|$v|$q|$t|||"
   CUR_PRESET=$(presets | awk -F'|' -v v="$v" -v q="$q" -v t="$t" '$2 == v && $3 == q && $4 == t { print NR; f = 1; exit }
     END { if (!f) print 0 }')
 }
@@ -279,7 +291,7 @@ cpu_ok() {
   echo
   echo "$1"
   if yes_no "Continue on the CPU (several minutes per image)?" y; then return 0; fi
-  if [ "$IS_MAC" = 1 ]; then
+  if [ "$IS_MAC" = 1 ] || [ "$GPU_COUNT" -gt 0 ]; then
     echo "Nothing was changed. Run $LAUNCHER again when you want to set it up."
   else
     echo "Nothing was changed. If you have an NVIDIA GPU, install its driver, then run $LAUNCHER again."
@@ -297,7 +309,8 @@ recommend() {
   else PRESET_REC=2
   fi
 }
-# show_presets RECOMMENDED cpu|gpu CURRENT: print the model choices (CURRENT 0 = no current model).
+# show_presets RECOMMENDED cpu|gpu CURRENT [CUSTOM]: print the model choices (CURRENT 0 = no current model). With
+# CUSTOM (the text of a model that is none of the choices), a last line offers to keep it.
 show_presets() {
   local i=0 name v q t gb sec need tm mark
   echo "    Choice          Download  Time per image  Needs"
@@ -310,6 +323,7 @@ show_presets() {
     fi
     printf ' %d) %-15s %5s GB  %-14s  %s%s\n' "$i" "$name" "$gb" "$tm" "$need" "$mark"
   done
+  if [ -n "${4:-}" ]; then echo " $((PRESET_COUNT + 1))) Keep the current model: $4  <- current"; fi
   echo
   if [ "$2" = cpu ]; then
     echo " On the CPU every image takes several minutes. 1 and 2 use the uncensored model."
@@ -330,7 +344,9 @@ pick_preset() {
 
 # --- step 3b: where each part of the model runs (only after "Split") --------------------------------------------------
 # Sizes in GB of the parts of a model choice (the files the server loads).
-image_gb() { case "$(pf "$1" 2)" in turbo) echo 4.2 ;; *) echo 4.6 ;; esac; }
+image_gb() {
+  case "$(pf "$1" 3)" in Q6_K) echo 5.9 ;; Q8_0) echo 7.6 ;; *) case "$(pf "$1" 2)" in turbo) echo 4.2 ;; *) echo 4.6 ;; esac ;; esac
+}
 encoder_gb() { case "$(pf "$1" 4)" in Q8_0) echo 8.7 ;; F16) echo 16.4 ;; *) echo 5.0 ;; esac; }
 DECODER_GB=0.7
 # part_default PLACE multi|cpu: the menu number for a saved place (the first GPU when it is not valid here).
@@ -401,7 +417,7 @@ gpu_warnings() {
       if (dec == $1) { files += 0.7; if (work < 4) work = 4 }
       need = files + work
       if (files > 0 && need > $3 - 2)
-        printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %.0f GB.\n", $1, $2, $3, need }'
+        printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %d GB.\n", $1, $2, $3, int(need + 0.5) }'
 }
 # show_warnings IMG TE DEC PRESET_LINE: print the memory warnings, if any. True when there were some.
 show_warnings() {
@@ -474,6 +490,8 @@ write_config() {
         place_short "$PLACE_DEC")${limits:+ ($limits)}"
     fi
   fi
+  # A custom model (kept in the setup) stays as it is in config.yaml.
+  if [ "$(pf "$2" 1)" = custom ]; then return 0; fi
   set_model "$1" "$2"
 }
 
@@ -481,7 +499,7 @@ write_config() {
 # Asks where the server runs and which model it uses and saves the answers in config.yaml. When config.yaml exists,
 # its settings are the defaults, so Enter keeps them.
 run_setup() {
-  local p tmp cur gpu_default=
+  local p tmp cur total custom= gpu_default=
   if ! interactive; then
     echo "The setup asks questions, so run $(launcher setup) in a terminal." >&2
     exit 1
@@ -511,7 +529,14 @@ run_setup() {
       elif [ -n "$(gpu_gb "$CUR_IMG")" ]; then gpu_default=$CUR_IMG
       fi
     fi
-    choose_gpus "$gpu_default"
+    total=$(printf '%s\n' "$GPU_ROWS" | awk -F'|' '{ s += $3 } END { print s + 0 }')
+    while :; do
+      choose_gpus "$gpu_default"
+      if [ "$VRAM_GB" -ge 8 ] || [ "$GPU_COUNT" -eq 1 ] || [ "$total" -lt 8 ]; then break; fi
+      echo
+      echo "That GPU has only $VRAM_GB GB of memory (8 GB or more is needed). Choose another GPU or the split."
+      gpu_default=$GPU_COUNT
+    done
     if [ "$VRAM_GB" -lt 8 ]; then
       cpu_ok "That GPU has only $VRAM_GB GB of memory (8 GB or more is needed), so the server can only run on the CPU."
     elif [ "$VRAM_GB" -lt 12 ]; then
@@ -537,9 +562,14 @@ run_setup() {
     echo
     echo "Which model do you want to use?"
     echo
-    show_presets "$PRESET_REC" "$DEVICE_REC" "$cur"
-    if [ "$cur" -gt 0 ]; then pick_preset "$PRESET_COUNT" "$cur"; else pick_preset "$PRESET_COUNT" "$PRESET_REC"; fi
-    p=$(preset "$CHOICE")
+    # A model that is none of the choices (set by hand in config.yaml) is offered as one more choice.
+    if [ -f config.yaml ] && [ "$cur" = 0 ]; then custom="custom ($CUR_MODEL_TEXT)"; fi
+    show_presets "$PRESET_REC" "$DEVICE_REC" "$cur" "$custom"
+    if [ -n "$custom" ]; then pick_preset $((PRESET_COUNT + 1)) $((PRESET_COUNT + 1))
+    elif [ "$cur" -gt 0 ]; then pick_preset "$PRESET_COUNT" "$cur"
+    else pick_preset "$PRESET_COUNT" "$PRESET_REC"
+    fi
+    if [ "$CHOICE" -gt "$PRESET_COUNT" ]; then p=$CUR_CHOICE; else p=$(preset "$CHOICE"); fi
     if [ "$DEVICE_REC" != gpu ] || [ "${SPLIT:-0}" = 1 ]; then break; fi
     PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG
     if ! show_warnings "$PLACE_IMG" "$PLACE_TE" "$PLACE_DEC" "$p"; then break; fi
@@ -596,7 +626,23 @@ load_settings() {
   IMAGE_REPO=$(sed -nE 's/^[[:space:]]*IMAGE_REPO[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p' .env | head -n1)
   IMAGE="${IMAGE_REPO:-imagegen-mcp}:$PROFILE"
 }
-server_running() { docker ps --filter 'name=^imagegen-mcp$' --format '{{.Names}}' 2>/dev/null | grep -q .; }
+# server_running: true when the container runs (one that keeps restarting after a crash does not count).
+server_running() {
+  docker ps --filter 'name=^imagegen-mcp$' --filter status=running --format '{{.Names}}' 2>/dev/null | grep -q .
+}
+# container_state: "STATUS RESTARTS" of the container (empty when there is no container).
+container_state() { docker inspect -f '{{.State.Status}} {{.RestartCount}}' imagegen-mcp 2>/dev/null | tr -d '\r' || true; }
+# server_status: the server's answer to /api/status (empty when it does not answer).
+server_status() { curl -fsS --max-time 5 "http://localhost:${PORT}/api/status" 2>/dev/null || true; }
+# show_stopped: the server stopped while starting; show the end of its log (a config error is named there).
+show_stopped() {
+  {
+    echo "The server stopped while starting. The end of its log:"
+    docker logs --tail 12 imagegen-mcp 2>&1 | awk 'NF { print "    " $0 }' | tail -n 12 || true
+    echo "If you changed config.yaml by hand, correct the setting named above or run $(launcher setup). Then run $LAUNCHER again."
+    echo "Details: docker compose logs --tail 80"
+  } >&2
+}
 
 # build_image FORCE: step 4a. Builds the image (or pulls it with IMAGE_REPO) when it is missing, when FORCE is 1 or
 # after an update changed the server code.
@@ -642,9 +688,15 @@ explain_up_error() {
       echo "Port $PORT is used by another program. Close that program, or set another port in config.yaml" >&2
       echo "(server: port:), then run $LAUNCHER again." >&2 ;;
     *"could not select device driver"*|*"nvidia-container"*|*"capabilities: [[gpu]]"*)
-      echo "Docker cannot reach the NVIDIA GPU. Install the NVIDIA Container Toolkit:" >&2
-      echo "https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" >&2
-      echo "then restart Docker and run $LAUNCHER again." >&2 ;;
+      case "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || true)" in
+        *"Docker Desktop"*)
+          echo "Docker cannot reach the NVIDIA GPU. Update the NVIDIA driver (570 or newer), restart the computer," >&2
+          echo "then run $LAUNCHER again." >&2 ;;
+        *)
+          echo "Docker cannot reach the NVIDIA GPU. Install the NVIDIA Container Toolkit:" >&2
+          echo "https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" >&2
+          echo "then restart Docker and run $LAUNCHER again." >&2 ;;
+      esac ;;
     *)
       echo "The server could not be started. Run $LAUNCHER again; if it fails again, the details are in:" >&2
       echo "    docker compose logs --tail 80" >&2 ;;
@@ -671,10 +723,24 @@ explain_server_error() {
 }
 # wait_ready: steps 4b and 4c. Shows the download and the model loading until the server is ready.
 wait_ready() {
-  local body state dl total pct err where line= said=
+  local body state dl total pct err where cs st rc restarts line= said= silent=0
+  cs=$(container_state); restarts=${cs##* }
+  case "$restarts" in ''|*[!0-9]*) restarts=0 ;; esac
   while :; do
-    body=$(curl -fsS "http://localhost:${PORT}/api/status" 2>/dev/null || true)
-    if [ -n "$body" ]; then
+    body=$(server_status)
+    if [ -z "$body" ]; then
+      # No answer: the server is still starting, or its container stopped or restarted after a crash.
+      cs=$(container_state); st=${cs%% *}; rc=${cs##* }
+      case "$rc" in ''|*[!0-9]*) rc=0 ;; esac
+      if [ -z "$cs" ] || [ "$st" != running ] || [ "$rc" -gt "$restarts" ]; then
+        if [ -n "$line" ]; then echo; fi
+        show_stopped
+        return 1
+      fi
+      silent=$((silent + 1))
+      if [ "$silent" = 45 ]; then echo "    (still waiting for the server to answer on port $PORT)"; fi
+    else
+      silent=0
       state=$(printf '%s' "$body" | sed -nE 's/^\{"state":"([a-z]+)".*/\1/p')
       case "$state" in
         downloading)
@@ -714,11 +780,6 @@ wait_ready() {
           return 1 ;;
       esac
     fi
-    if ! server_running; then
-      if [ -n "$line" ]; then echo; fi
-      echo "The server stopped while starting. Details: docker compose logs --tail 80" >&2
-      return 1
-    fi
     sleep 2
   done
 }
@@ -730,18 +791,32 @@ show_ready() {
   echo "The server runs in the background, so you can close this window. It starts again with Docker."
   echo "To change the settings, run $(launcher setup). To stop the server, run $(launcher stop)."
 }
-# start_server ask|restart BUILD: step 4. With "ask", a running server is restarted only when the person wants to.
+# start_server ask|restart BUILD: step 4. With "ask", a running server is restarted only when the person wants to,
+# or when it must be: after an update that changed the server, with --build, or when it stopped with an error.
 start_server() {
-  local out
+  local out st
   load_settings
   detect
-  if [ "$1" = ask ] && server_running && interactive; then
-    echo
-    echo "The server is already running."
-    if ! yes_no "Restart it? (Only needed after you changed config.yaml by hand.)" n; then
-      wait_ready || exit 1
-      show_ready
-      return 0
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is needed to follow the start. Install it (for example: sudo apt install curl), then run $LAUNCHER again." >&2
+    exit 1
+  fi
+  if [ "$1" = ask ] && server_running; then
+    st=$(server_status | sed -nE 's/^\{"state":"([a-z]+)".*/\1/p' || true)
+    if [ -f "$BUILD_MARK" ]; then
+      echo "==> An update changed the server, so it is built again and restarted."
+    elif [ "${2:-0}" = 1 ]; then
+      :
+    elif [ "$st" = error ]; then
+      echo "==> The server stopped with an error, so it is started again."
+    elif interactive; then
+      echo
+      echo "The server is already running."
+      if ! yes_no "Restart it? (Only needed after you changed config.yaml by hand.)" n; then
+        wait_ready || exit 1
+        show_ready
+        return 0
+      fi
     fi
   fi
   build_image "${2:-0}" || exit 1
@@ -756,27 +831,29 @@ start_server() {
 }
 
 # --- update -----------------------------------------------------------------------------------------------------------
+# A change in these paths needs a new image (see .dockerignore; docker-compose.yml has the build settings).
+IMAGE_PATHS="Dockerfile pyproject.toml src docker/patches docker-compose.yml .dockerignore"
+IMAGE_PATTERN='^(Dockerfile|pyproject\.toml|docker-compose\.yml|\.dockerignore)$|^(src|docker/patches)/'
 # run_update: install the latest version with git. config.yaml, .env, the models and the images are never touched.
 run_update() {
-  local out branch behind ahead old changed them=them
-  if ! command -v git >/dev/null 2>&1; then
-    echo "Git is not installed, so this copy cannot update itself."
+  local out branch behind diverged ahead old changed inway f stamp kept= moved= failed=0 need_build=0 start= them=them
+  # A ZIP download has no .git folder. Check that first: git may be missing, or a stub that opens an installer.
+  if [ ! -e .git ]; then
+    echo "This folder is not a git copy (it was probably downloaded as a ZIP), so it cannot update itself."
     echo "Download the latest version from $REPO_URL"
     echo "and copy your config.yaml, .env and models folder into it."
     return 0
   fi
-  export GIT_TERMINAL_PROMPT=0   # fail instead of asking for a password
-  # --show-prefix is empty only when this folder is the top of a git copy.
-  if ! out=$(git rev-parse --show-prefix 2>&1); then
-    case "$out" in
-      *"not a git repository"*) out=none ;;
-      *) printf '%s\n' "$out" | head -n1; return 0 ;;   # for example "detected dubious ownership"
-    esac
+  if ! command -v git >/dev/null 2>&1 || ! git --version >/dev/null 2>&1; then
+    echo "Git is not installed, so this copy cannot update itself. Install Git (on a Mac: xcode-select --install),"
+    echo "then run $LAUNCHER again."
+    return 0
   fi
-  if [ -n "$out" ]; then
-    echo "This folder is not a git copy (it was probably downloaded as a ZIP), so it cannot update itself."
-    echo "Download the latest version from $REPO_URL"
-    echo "and copy your config.yaml, .env and models folder into it."
+  export GIT_TERMINAL_PROMPT=0   # fail instead of asking for a password
+  if ! out=$(git rev-parse --show-toplevel 2>&1); then
+    # For example "detected dubious ownership": git's next lines name the command that fixes it.
+    echo "Git reported an error:"
+    printf '%s\n' "$out" | awk 'NF { print "    " $0 }'
     return 0
   fi
   if ! git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
@@ -786,55 +863,101 @@ run_update() {
     return 0
   fi
   echo "==> Checking for updates..."
-  if ! git fetch --quiet >/dev/null 2>&1; then
-    echo "Could not reach GitHub. Check your internet connection, then run $LAUNCHER again."
+  if ! out=$(git fetch --quiet 2>&1); then
+    echo "Could not get the updates: $(printf '%s\n' "$out" | awk 'NF { print; exit }')"
+    echo "Check your internet connection, then run $LAUNCHER again."
     return 0
   fi
   behind=$(git rev-list --count 'HEAD..@{u}' 2>/dev/null) || behind=0
-  ahead=$(git rev-list --count '@{u}..HEAD' 2>/dev/null) || ahead=0
+  diverged=$(git rev-list --count '@{u}..HEAD' 2>/dev/null) || diverged=0
+  # Commits of this copy whose changes are not on GitHub (old commits of a rewritten GitHub history do not count).
+  ahead=$(git rev-list --count --cherry-pick --right-only '@{u}...HEAD' 2>/dev/null) || ahead=0
   if [ "$behind" = 0 ]; then echo "You already have the latest version."; return 0; fi
   if [ "$behind" = 1 ]; then echo "1 update is available:"; them=it; else echo "$behind updates are available:"; fi
   git --no-pager log --oneline --no-decorate --reverse 'HEAD..@{u}' 2>/dev/null | sed -n '1,15s/^/    /p' || true
   if [ "$behind" -gt 15 ]; then echo "    ... and $((behind - 15)) more"; fi
   if ! yes_no "Install $them now?" y; then return 0; fi
   old=$(git rev-parse HEAD)
-  if [ "$ahead" != 0 ] || ! out=$(git merge --ff-only --quiet '@{u}' 2>&1); then
+  if [ "$diverged" != 0 ] || ! out=$(git merge --ff-only --quiet '@{u}' 2>&1); then
     changed=$(git --no-pager status --porcelain --untracked-files=no 2>/dev/null | sed 's/^.. //' || true)
-    echo
-    echo "The update cannot be installed because this copy was changed on this computer:"
-    if [ -n "$changed" ]; then printf '%s\n' "$changed" | sed -n '1,15s/^/    /p'; fi
-    if [ "$ahead" != 0 ]; then echo "    $ahead commit(s) made on this computer"; fi
-    if [ -z "$changed" ] && [ "$ahead" = 0 ]; then printf '%s\n' "$out" | awk 'NF && n < 6 { print "    " $0; n++ }'; fi
-    echo "Your settings (config.yaml, .env), the models and your images are not affected."
-    echo
-    echo "  1) Cancel the update and keep the changes"
-    echo "  2) Discard the changes and install the update"
-    read_choice 2 1
-    if [ "$CHOICE" = 1 ]; then echo "Nothing was changed."; return 0; fi
-    # Keep a copy for people who know git: the changed files in a stash, the old version in a branch.
+    # Files of this computer where the update adds a file: git would delete them, so they are renamed first.
+    inway=$(git --no-pager diff --name-only --diff-filter=A HEAD '@{u}' 2>/dev/null | while IFS= read -r f; do
+      if [ -e "$f" ] && ! printf '%s\n' "$changed" | grep -qxF -- "$f"; then printf '%s\n' "$f"; fi
+    done || true)
+    if [ "$ahead" = 0 ] && [ -z "$changed" ] && [ -z "$inway" ]; then
+      # Nothing of this computer is lost: the history on GitHub was rewritten. Take it as it is.
+      echo "The version on GitHub was rewritten, so it replaces this copy."
+    else
+      echo
+      echo "The update cannot be installed because this copy was changed on this computer:"
+      if [ -n "$changed" ]; then printf '%s\n' "$changed" | sed -n '1,15s/^/    /p'; fi
+      if [ -n "$inway" ]; then printf '%s\n' "$inway" | sed -n '1,15s/.*/    & (your file, where the update adds one)/p'; fi
+      if [ "$ahead" != 0 ]; then echo "    $ahead commit(s) that are not on GitHub"; fi
+      echo "Your settings (config.yaml, .env), the models and your images are not affected."
+      echo
+      echo "  1) Cancel the update and keep the changes"
+      echo "  2) Discard the changes and install the update"
+      read_choice 2 1
+      if [ "$CHOICE" = 1 ]; then echo "Nothing was changed."; return 0; fi
+    fi
+    stamp=$(date +%Y%m%d-%H%M%S)
+    # A copy for people who know git: the changed files in a stash, the old version in a branch of its own.
     # The name and email let the stash work where git has no identity set (common on new computers).
     if [ -n "$changed" ]; then
-      git -c user.name="Image Gen MCP" -c user.email=update@localhost stash push --quiet -m "changes before update"         >/dev/null 2>&1 || true
+      if ! out=$(git -c user.name="Image Gen MCP" -c user.email=update@localhost stash push --quiet \
+          -m "changes before update $stamp" 2>&1); then
+        echo "The update failed: no copy of the changes could be kept ($(printf '%s\n' "$out" | awk 'NF { print; exit }'))." >&2
+        echo "Nothing was changed."
+        return 1
+      fi
+      kept="'git stash list'"
+      if printf '%s\n' "$changed" | grep -Eq "$IMAGE_PATTERN"; then need_build=1; fi
     fi
-    git branch -f before-update "$old" >/dev/null 2>&1 || true
-    if ! out=$(git reset --hard --quiet '@{u}' 2>&1); then
+    if git branch "before-update-$stamp" "$old" >/dev/null 2>&1; then
+      kept="${kept:+$kept and }the branch before-update-$stamp"
+    fi
+    if [ -n "$inway" ]; then
+      while IFS= read -r f; do
+        mv -f -- "$f" "$f.before-update"; moved="${moved:+$moved, }$f.before-update"
+      done <<EOF
+$inway
+EOF
+    fi
+    # Settings files survive even when a commit of this copy had added them to git.
+    for f in config.yaml .env docker-compose.override.yml; do
+      if [ -f "$f" ]; then cp -p "$f" "$f.update-backup"; fi
+    done
+    if ! out=$(git reset --hard --quiet '@{u}' 2>&1); then failed=1; fi
+    for f in config.yaml .env docker-compose.override.yml; do
+      if [ -f "$f.update-backup" ]; then
+        if [ -e "$f" ]; then rm -f "$f.update-backup"; else mv -f "$f.update-backup" "$f"; fi
+      fi
+    done
+    if [ "$failed" = 1 ]; then
       echo "The update failed: $(printf '%s\n' "$out" | awk 'NF { print; exit }')" >&2
       return 1
     fi
-    echo "    The changes were discarded. (A copy is kept in git: 'git stash list' and the branch before-update.)"
+    if [ -n "$kept" ]; then echo "    The old version is kept in git: $kept."; fi
+    if [ -n "$moved" ]; then echo "    Your files were renamed: $moved"; fi
   fi
   echo
   echo "==> Update installed. Your settings in config.yaml were kept."
-  changed=$(git --no-pager diff --name-only "$old" HEAD -- Dockerfile pyproject.toml src docker/patches 2>/dev/null ||
-    true)
-  if [ -n "$changed" ]; then touch "$BUILD_MARK"; fi
+  # shellcheck disable=SC2086  # IMAGE_PATHS is a list of paths
+  if [ -n "$(git --no-pager diff --name-only "$old" HEAD -- $IMAGE_PATHS 2>/dev/null || true)" ]; then need_build=1; fi
+  if [ "$need_build" = 1 ]; then touch "$BUILD_MARK"; fi
   if [ ! -f config.yaml ]; then echo "Run $(launcher start) to set it up and start it."; return 0; fi
-  if [ -n "$changed" ]; then
-    echo "    The server itself changed, so it is built again when it starts (10-30 minutes)."
+  if [ "$need_build" = 1 ]; then
+    echo "    The server itself changed, so it is built again (10-30 minutes) and restarted."
+    if yes_no "Do that now?" y; then start=1
+    else echo "Run $(launcher start) when you are ready: it builds and restarts the server."
+    fi
+  elif server_running; then
+    echo "    The running server does not need a restart for this update."
+  elif yes_no "Start the server now?" y; then
+    start=1
+  else
+    echo "Run $(launcher start) to start the server."
   fi
-  if yes_no "Start the new version now?" y; then
-    # The new start script (git just replaced it) builds the image if needed and restarts the server.
-    exec bash ./start.sh --restart
-  fi
-  echo "Run $(launcher start) to use the new version."
+  # The new start script (git just replaced it) builds the image if needed and restarts the server.
+  if [ -n "$start" ]; then exec bash ./start.sh; fi
 }

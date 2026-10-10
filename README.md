@@ -311,7 +311,7 @@ After a change, run the start script again and let it restart the server. The mo
 | Setting | Default | What it does |
 |---|---|---|
 | `device` | `gpu` | `gpu` or `cpu` |
-| `model.variant`, `model.quant`, `model.text_encoder_quant` | `uncensored`, `Q4_K_M`, `Q4_K_M` | The model: see [Choosing a model](#choosing-a-model). The start menu changes these |
+| `model.variant`, `model.quant`, `model.text_encoder_quant` | `uncensored`, `Q4_K_M`, `Q4_K_M` | The model: see [Choosing a model](#choosing-a-model). `setup.cmd` (Windows) or `./setup.sh` (Linux) changes these |
 | `generation.steps` | 40 | Quality vs. speed. 25 is a faster draft |
 | `generation.default_size` | 1024x1024 | Size when a request gives none |
 | `generation.panorama_size` | 2048x1024 | Default panorama size (2880x1440 at most) |
