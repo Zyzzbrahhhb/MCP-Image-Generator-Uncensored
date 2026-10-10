@@ -59,6 +59,18 @@ def test_env_override(monkeypatch, tmp_path):
     assert cfg.device == "cpu" and cfg.model.quant == "Q6_K"
 
 
+def test_env_picks_the_model(monkeypatch, tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("model:\n  variant: uncensored\n  text_encoder_quant: Q4_K_M\n")
+    monkeypatch.setenv("IMAGEGEN_VARIANT", "turbo")
+    monkeypatch.setenv("IMAGEGEN_QUANT", "AD-Q5_K")
+    monkeypatch.setenv("IMAGEGEN_TEXT_ENCODER_QUANT", "q8_0")
+    cfg = load_config(p)
+    assert (cfg.model.variant, cfg.model.quant, cfg.model.text_encoder_quant) == ("turbo", "Q5_K_M", "Q8_0")
+    monkeypatch.setenv("IMAGEGEN_VARIANT", "")  # empty = keep config.yaml
+    assert load_config(p).model.variant == "uncensored"
+
+
 def test_cpu_plan_hides_gpus():
     plan = build_device_plan(Config.model_validate({"device": "cpu", "cpu": {"threads": 6}}))
     assert plan.args[:2] == ["--backend", "cpu"]

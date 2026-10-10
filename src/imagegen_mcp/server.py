@@ -89,6 +89,7 @@ def _guide(cfg: Config) -> dict[str, str]:
     steps = cfg.default_steps
     t2i_cfg = cfg.default_cfg_scale
     cpu = cfg.is_cpu
+    turbo = cfg.is_turbo
     max_mp = cfg.max_pixels / 1e6
     wm = cfg.watermark
 
@@ -101,8 +102,12 @@ def _guide(cfg: Config) -> dict[str, str]:
         why_steps = "the official setting" if steps == 40 else "this server's setting"
     draft = " Use 25-30 only if the user asks for a quick draft." if steps > 30 else ""
     steps_line = f"- steps: leave unset ({steps}, {why_steps}).{draft}"
+    if turbo:
+        steps_line = f"- steps: leave unset ({steps}: this Turbo model runs one fixed {steps}-step schedule)."
 
     def cfg_line(value: float, edit: bool) -> str:
+        if turbo:
+            return f"- cfg_scale: leave unset ({fmt(value)}: this Turbo model is distilled for guidance 1)."
         if value <= 1:
             why = "because this server runs on a CPU" if cpu else "because this server is configured for speed"
             extra = " For edits consider cfg_scale 4: at 1 the model often ignores the instruction." if edit else ""
@@ -113,6 +118,8 @@ def _guide(cfg: Config) -> dict[str, str]:
         return f"- cfg_scale: leave unset ({fmt(value)}, the tested best value; {why})."
 
     def neg_line(built_in: str, value: float) -> str:
+        if turbo:
+            return "- negative_prompt: no effect with this Turbo model (guidance 1); leave it empty."
         if not built_in:
             return "- negative_prompt: only used when cfg_scale is above 1; then list specific things to avoid."
         if value > 1:
@@ -149,6 +156,8 @@ def _guide(cfg: Config) -> dict[str, str]:
         example_size = {}
     if cpu:
         timing = "Generation takes minutes on this CPU server."
+    elif turbo:
+        timing = "Generation takes seconds to about a minute."
     elif rec == "xl":
         timing = "Generation takes 30 seconds to a few minutes."
     else:
@@ -194,8 +203,8 @@ def _guide(cfg: Config) -> dict[str, str]:
             "- size: leave aspect_ratio, width and height unset to keep the shape of <image1>; change them only to "
             f"extend the scene. {edit_size}",
             steps_line,
-            cfg_line(g.edit_cfg_scale, edit=True),
-            neg_line(g.edit_negative_prompt, g.edit_cfg_scale),
+            cfg_line(cfg.edit_cfg_scale, edit=True),
+            neg_line(g.edit_negative_prompt, cfg.edit_cfg_scale),
             "- seed: leave unset. Never reuse the seed that produced the input image: it gives over-saturated, "
             "fragmented results.",
         ), job=True)

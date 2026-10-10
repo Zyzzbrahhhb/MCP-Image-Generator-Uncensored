@@ -45,8 +45,11 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 # ---------------------------------------------------------------- build (CPU)
 FROM ubuntu:${UBUNTU_VERSION} AS build-cpu
 ARG BUILD_JOBS=8
-RUN apt-get update && apt-get install -y --no-install-recommends cmake build-essential git ca-certificates \
+# GCC 14: the arm64 CPU variants (Apple Silicon, Graviton) use instructions GCC 13 does not know.
+RUN apt-get update && apt-get install -y --no-install-recommends cmake build-essential gcc-14 g++-14 git \
+      ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+ENV CC=gcc-14 CXX=g++-14
 COPY --from=sdcpp-src /src /src
 WORKDIR /src
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

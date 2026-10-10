@@ -48,7 +48,8 @@ cpu:
 model:
   quant: Q4_K_M            # Q4_K_M (default, 4.6 GB) | Q6_K (5.9 GB) | Q8_0 (7.6 GB)
                            # also: Q4_0, Q5_K_M, BF16 (14.2 GB)
-  variant: uncensored      # uncensored | base
+                           # turbo: Q4_K_M = AD-Q4_K (4.2 GB), Q5_K_M = AD-Q5_K (5.4 GB), Q6_K, Q8_0, BF16
+  variant: uncensored      # uncensored | base | turbo (official 8-step model, guidance 1)
   text_encoder_quant: Q4_K_M   # Q4_K_M (5.0 GB) | Q8_0 (8.7 GB) | F16 (16.4 GB)
   vision_quant: F16        # F16 (1.2 GB) | Q8_0 (0.75 GB) - image understanding for edits
   vae: texture-fix         # texture-fix: no 2-pixel checkerboard (madebyollin fine-tune) | original: stock VAE

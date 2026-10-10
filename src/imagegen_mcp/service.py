@@ -30,7 +30,7 @@ from .devices import DevicePlan, build_device_plan
 from .jobs import JobManager
 from .imaging import ImageInputError
 from .models import ModelStore
-from .schedule import official_sigmas
+from .schedule import official_sigmas, turbo_sigmas
 from .sdserver import EngineError, SdServer
 
 log = logging.getLogger("imagegen.service")
@@ -130,14 +130,15 @@ def _input_notes(images: list[Image.Image]) -> list[str]:
     return [im.info["imagegen_note"] for im in images if im.info.get("imagegen_note")]
 
 
-def merge_negative(built_in: str, extra: str, cfg_scale: float, notes: list[str]) -> str:
+def merge_negative(built_in: str, extra: str, cfg_scale: float, notes: list[str], turbo: bool = False) -> str:
     """The negative prompt to use: the built-in list plus the caller's extra terms (duplicates dropped).
 
     Guidance of 1 or less ignores the negative prompt, so none is sent then.
     """
     if cfg_scale <= 1:
         if extra.strip():
-            notes.append("negative_prompt has no effect at cfg_scale 1; raise cfg_scale to use it")
+            notes.append("negative_prompt has no effect at cfg_scale 1"
+                         + (" (this Turbo model runs at 1)" if turbo else "; raise cfg_scale to use it"))
         return ""
     terms: list[str] = []
     for part in f"{built_in},{extra}".split(","):
@@ -390,15 +391,26 @@ class ImageService:
             return secrets.randbelow(2**31 - 1)
         return int(seed)
 
+    def _steps(self, steps: int | None, notes: list[str]) -> int:
+        fixed = self.cfg.fixed_steps
+        if fixed and steps and steps != fixed:
+            notes.append(f"steps is fixed at {fixed} for this Turbo model; {steps} was not used")
+        return fixed or steps or self.cfg.default_steps
+
     def _body(self, prompt: str, negative: str, width: int, height: int, *, steps: int, seed: int,
               cfg_scale: float | None = None, refs: list[str] | None = None, init: str | None = None,
               mask: str | None = None, strength: float | None = None, lora: tuple[str, float] | None = None,
               ref_max_pixels: int | None = None, circular: tuple[bool, bool] = (False, False)) -> dict:
         g = self.cfg.generation
         scale = self.cfg.default_cfg_scale if cfg_scale is None else cfg_scale
-        sample: dict = {"sample_method": g.sampler, "sample_steps": int(steps),
+        sigmas = turbo_sigmas() if self.cfg.schedule == "turbo" else None
+        if sigmas:  # one fixed schedule; sample_steps must match it (engines before c150a6b miscount otherwise)
+            steps = len(sigmas) - 1
+        sample: dict = {"sample_method": "euler" if sigmas else g.sampler, "sample_steps": int(steps),
                         "guidance": {"txt_cfg": float(scale), "img_cfg": float(scale)}}
-        if g.schedule == "official":
+        if sigmas:
+            sample["custom_sigmas"] = sigmas
+        elif g.schedule == "official":
             sample["custom_sigmas"] = official_sigmas(width, height, steps)
         elif g.scheduler:
             sample["scheduler"] = g.scheduler
@@ -534,10 +546,10 @@ class ImageService:
         w, h, notes = imaging.resolve_size(width=width, height=height, aspect_ratio=aspect_ratio, size=size,
                                            default=self.cfg.default_size, max_pixels=self.cfg.max_pixels)
         seed_v = self._seed(seed)
-        steps_v = steps or self.cfg.default_steps
+        steps_v = self._steps(steps, notes)
         text = transparency.rgba_prompt(prompt) if transparent else prompt
         scale = self.cfg.default_cfg_scale if cfg_scale is None else cfg_scale
-        negative = merge_negative(self.cfg.generation.negative_prompt, negative_prompt, scale, notes)
+        negative = merge_negative(self.cfg.generation.negative_prompt, negative_prompt, scale, notes, turbo=self.cfg.is_turbo)
 
         def stage(lo: float, hi: float, label: str) -> Progress:
             async def cb(frac: float, msg: str) -> None:
@@ -629,13 +641,13 @@ class ImageService:
         fitted, per_ref = self._fit_token_budget(w, h, [imaging.fit_reference(im, max_ref) for im in loaded], notes)
         refs = [imaging.to_png_b64(im) for im in fitted]
         seed_v = self._seed(seed)
-        steps_v = steps or self.cfg.default_steps
+        steps_v = self._steps(steps, notes)
         text = transparency.rgba_prompt(prompt) if transparent else prompt
         # Edits need guidance: at cfg 1 the model tends to ignore the instruction and return an
         # over-sharpened copy of the input (measured with stable-diffusion.cpp).
         g = self.cfg.generation
-        scale = g.edit_cfg_scale if cfg_scale is None else cfg_scale
-        negative = merge_negative(g.edit_negative_prompt, negative_prompt, scale, notes)
+        scale = self.cfg.edit_cfg_scale if cfg_scale is None else cfg_scale
+        negative = merge_negative(g.edit_negative_prompt, negative_prompt, scale, notes, turbo=self.cfg.is_turbo)
         circ = tile and self._use_circular(self.cfg.generation.tile_method, [])
         img, circ = await self._run_checked(self._body(text, negative, w, h, steps=steps_v, seed=seed_v,
                                                        cfg_scale=scale, refs=refs, ref_max_pixels=per_ref,
@@ -676,7 +688,7 @@ class ImageService:
             ph = pw // 2
             notes.append(f"reduced the panorama to {pw}x{ph} (server pixel limit)")
         seed_v = self._seed(seed)
-        steps_v = steps or self.cfg.default_steps
+        steps_v = self._steps(steps, notes)
         refs = None
         per_ref = None
         if image:
@@ -699,11 +711,11 @@ class ImageService:
         circ = self._use_circular(self.cfg.panorama.wrap_method, notes)  # x only: no wrap from top to bottom
         g = self.cfg.generation
         if refs:  # extending a photo is an edit: it uses the edit guidance
-            pano_cfg = g.edit_cfg_scale if cfg_scale is None else cfg_scale
-            pano_neg = merge_negative(g.edit_negative_prompt, negative_prompt, pano_cfg, notes)
+            pano_cfg = self.cfg.edit_cfg_scale if cfg_scale is None else cfg_scale
+            pano_neg = merge_negative(g.edit_negative_prompt, negative_prompt, pano_cfg, notes, turbo=self.cfg.is_turbo)
         else:
             pano_cfg = self.cfg.default_cfg_scale if cfg_scale is None else cfg_scale
-            pano_neg = merge_negative(g.negative_prompt, negative_prompt, pano_cfg, notes)
+            pano_neg = merge_negative(g.negative_prompt, negative_prompt, pano_cfg, notes, turbo=self.cfg.is_turbo)
         img, circ = await self._run_checked(
             self._body(text, pano_neg, pw, ph, steps=steps_v, seed=seed_v, cfg_scale=pano_cfg, refs=refs,
                        ref_max_pixels=per_ref, circular=(circ, False)),
@@ -773,9 +785,9 @@ class ImageService:
         w, h = imaging.dims_for((src.width, src.height), target)
         work = rgb.resize((w, h), Image.Resampling.LANCZOS) if (w, h) != rgb.size else rgb
         seed_v = self._seed(seed)
-        steps_v = steps or self.cfg.default_steps
+        steps_v = self._steps(steps, notes)
         g = self.cfg.generation
-        scale = g.edit_cfg_scale
+        scale = self.cfg.edit_cfg_scale
         negative = merge_negative(g.edit_negative_prompt, "", scale, notes)
         out = await self._run(self._body(wm.prompt, negative, w, h, steps=steps_v, seed=seed_v, cfg_scale=scale,
                                          refs=[imaging.to_png_b64(work)], lora=(self.watermark_lora, wm.strength),
@@ -1002,8 +1014,8 @@ class ImageService:
                                   "ready" if self.watermark_lora else self.watermark_error or "not loaded yet"),
             "defaults": {"size": "x".join(map(str, self.cfg.default_size)), "steps": self.cfg.default_steps,
                          "cfg_scale": self.cfg.default_cfg_scale,
-                         "edit_cfg_scale": self.cfg.generation.edit_cfg_scale,
-                         "schedule": self.cfg.generation.schedule,
+                         "edit_cfg_scale": self.cfg.edit_cfg_scale,
+                         "schedule": self.cfg.schedule,
                          "panorama_size": "x".join(map(str, self.cfg.panorama_size)),
                          "max_megapixels": self.cfg.max_pixels / 1e6},
             "jobs_done": self.jobs_done,

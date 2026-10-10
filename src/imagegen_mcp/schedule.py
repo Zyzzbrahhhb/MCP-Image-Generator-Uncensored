@@ -1,8 +1,11 @@
-"""Qwen-Image-2.1's official noise schedule, sent to stable-diffusion.cpp as custom sigmas.
+"""Qwen-Image-2.1's official noise schedules, sent to stable-diffusion.cpp as custom sigmas.
 
 stable-diffusion.cpp's default flux schedule shifts much harder than the reference pipeline (mu 1.15 instead
 of 0.69 at 1024x1024, 3.2 instead of 1.3 at 2048x2048) and skips the terminal stretch, so the last step
 jumps to a clean image from sigma 0.05-0.1 instead of 0.02. Both cost fine detail.
+
+Qwen-Image-2.1-Turbo is distilled for one fixed 8-step schedule (``sample_sigmas`` in its model_index.json) at
+guidance 1, the same at every image size.
 """
 from __future__ import annotations
 
@@ -13,6 +16,16 @@ BASE_SEQ_LEN, MAX_SEQ_LEN = 256, 8192
 BASE_SHIFT, MAX_SHIFT = 0.5, 0.9
 SHIFT_TERMINAL = 0.02
 LATENT_SCALE = 16  # one latent token per 16x16 pixels
+
+
+# Qwen/Qwen-Image-2.1-Turbo model_index.json "sample_sigmas" (the scheduler's shift is 1.0: used as they are).
+TURBO_SIGMAS = (1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568)
+TURBO_STEPS = len(TURBO_SIGMAS)
+
+
+def turbo_sigmas() -> list[float]:
+    """Turbo's schedule plus the final 0.0 (without it the image stays half denoised)."""
+    return [*TURBO_SIGMAS, 0.0]
 
 
 def official_mu(width: int, height: int) -> float:

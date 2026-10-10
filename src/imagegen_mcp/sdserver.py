@@ -216,8 +216,9 @@ class SdServer:
             # Never give sd-server an upscaler model: one in this folder slowed every denoising step by ~45%
             # (smaller graph-cut budget, 3 GB/s GPU->host traffic). upscale() runs sd-cli instead.
             "--hires-upscalers-dir", str(self._empty_dir),
-            "--sampling-method", self.cfg.generation.sampler,
-            "--cfg-scale", str(self.cfg.generation.cfg_scale),
+            # Defaults only: every request sends its own sampler, steps and guidance.
+            "--sampling-method", "euler" if self.cfg.is_turbo else self.cfg.generation.sampler,
+            "--cfg-scale", str(self.cfg.default_cfg_scale),
             "--steps", str(self.cfg.default_steps),
             *self.plan.args,
             *(["--vae-conv-direct"] if self.vae_conv_direct else []),

@@ -15,6 +15,8 @@ from typing import Literal, Union
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .schedule import TURBO_STEPS
+
 GpuRef = Union[int, Literal["cpu"]]
 
 DIFFUSION_QUANTS = ("Q4_0", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0", "BF16")
@@ -58,7 +60,9 @@ class ServerConfig(_Section):
 
 class ModelConfig(_Section):
     quant: Literal["Q4_0", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0", "BF16"] = "Q4_K_M"
-    variant: Literal["uncensored", "base"] = "uncensored"
+    # uncensored: an uncensored fine-tune of Qwen-Image-2.1; base: the official weights; turbo: the official 8-step
+    # Qwen-Image-2.1-Turbo (fixed schedule, guidance 1: steps, cfg_scale and schedule follow the model).
+    variant: Literal["uncensored", "base", "turbo"] = "uncensored"
     text_encoder_quant: Literal["Q4_K_M", "Q8_0", "F16"] = "Q4_K_M"
     vision_quant: Literal["F16", "Q8_0"] = "F16"
     # texture-fix: a decoder fine-tune without the stock VAE's 2-pixel checkerboard; original: the stock VAE
@@ -71,6 +75,7 @@ class ModelConfig(_Section):
     @classmethod
     def _norm_quant(cls, v):
         s = str(v).strip().upper()
+        s = s[3:] if s.startswith("AD-") else s  # the Turbo file names: AD-Q4_K = Q4_K_M, AD-Q5_K = Q5_K_M, ...
         aliases = {"Q4": "Q4_K_M", "4Q": "Q4_K_M", "Q5": "Q5_K_M", "5Q": "Q5_K_M", "Q6": "Q6_K",
                    "6Q": "Q6_K", "Q8": "Q8_0", "8Q": "Q8_0", "Q4_K": "Q4_K_M", "Q5_K": "Q5_K_M"}
         return aliases.get(s, s)
@@ -84,6 +89,8 @@ class ModelConfig(_Section):
     def _check_variant(self):
         if self.variant == "base" and self.quant == "BF16":
             raise ValueError("model.quant BF16 is only published for variant 'uncensored'")
+        if self.variant == "turbo" and self.quant == "Q4_0":
+            raise ValueError("model.quant Q4_0 is not published for variant 'turbo' (Q4_K_M is the 4-bit file)")
         return self
 
 
@@ -301,12 +308,33 @@ class Config(_Section):
         return self.device == "cpu"
 
     @property
+    def is_turbo(self) -> bool:
+        return self.model.variant == "turbo"
+
+    @property
+    def fixed_steps(self) -> int | None:
+        """Turbo runs its own 8-step schedule: the step count is not a setting there."""
+        return TURBO_STEPS if self.is_turbo else None
+
+    @property
+    def schedule(self) -> str:
+        return "turbo" if self.is_turbo else self.generation.schedule
+
+    @property
     def default_steps(self) -> int:
+        if self.is_turbo:
+            return TURBO_STEPS
         return self.generation.cpu_steps if self.is_cpu else self.generation.steps
 
     @property
     def default_cfg_scale(self) -> float:
+        if self.is_turbo:
+            return 1.0
         return self.generation.cpu_cfg_scale if self.is_cpu else self.generation.cfg_scale
+
+    @property
+    def edit_cfg_scale(self) -> float:
+        return 1.0 if self.is_turbo else self.generation.edit_cfg_scale
 
     @property
     def default_size(self) -> tuple[int, int]:
@@ -328,7 +356,9 @@ class Config(_Section):
 
 ENV_OVERRIDES = {
     "IMAGEGEN_DEVICE": ("device",),
+    "IMAGEGEN_VARIANT": ("model", "variant"),
     "IMAGEGEN_QUANT": ("model", "quant"),
+    "IMAGEGEN_TEXT_ENCODER_QUANT": ("model", "text_encoder_quant"),
     "IMAGEGEN_PORT": ("server", "port"),
     "IMAGEGEN_PUBLIC_URL": ("server", "public_url"),
     "IMAGEGEN_LOG_LEVEL": ("server", "log_level"),

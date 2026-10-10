@@ -33,9 +33,12 @@ from .config import Config
 log = logging.getLogger("imagegen.models")
 
 DIFFUSION_REPO = "abenzerps/Qwen-Image-2.1-Uncensored-GGUF"
+TURBO_REPO = "AtomicChat/Qwen-Image-2.1-Turbo-GGUF"  # Qwen/Qwen-Image-2.1-Turbo as GGUF, importance-matrix quants
+DIFFUSION_REPOS = {"uncensored": DIFFUSION_REPO, "base": DIFFUSION_REPO, "turbo": TURBO_REPO}
 DIFFUSION_REVISIONS = {
     "uncensored": "1206d38bb47ef93961bfb77bc2c700d43a25860e",  # branch main
     "base": "4db8efdbe3426175988fca2ac50670f35ccb7ec9",  # branch base
+    "turbo": "bb25d06bc74119c12207243d68917951e6d9c232",
 }
 TEXT_ENCODER_REPO = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
 TEXT_ENCODER_REVISION = "f982a07559d4a2f6c8744d840bf6fccab30eea96"
@@ -81,6 +84,12 @@ _DIFFUSION = {
     ("base", "Q5_K_M"): ("qwen-image-2.1-Q5_K_M.gguf", 5221284512, "88ce8e90e5b959cce5e248f697d7f6c9c7ca5696c1eac64a10dadb041dd7fd07"),
     ("base", "Q6_K"): ("qwen-image-2.1-Q6_K.gguf", 5876556448, "a3a0d39bb03cda26302fc048b49d019baaea1c381cbda3994f6f2a7826344fb9"),
     ("base", "Q8_0"): ("qwen-image-2.1-Q8_0.gguf", 7591557792, "9a7ec02f4c9d5cf5b78e8efa6ccd81ec0c35a898defbf8e77ac7c02a32fe0d7e"),
+    # AD = per-tensor types with an importance matrix; AD-Q4_K stands in for Q4_K_M, and so on.
+    ("turbo", "Q4_K_M"): ("Qwen-Image-2.1-Turbo-AD-Q4_K.gguf", 4201694944, "4bb73c53cbe284bbd6d69b9fdc59539c531f0389dd2aa567663d777f8130bc59"),
+    ("turbo", "Q5_K_M"): ("Qwen-Image-2.1-Turbo-AD-Q5_K.gguf", 5399168736, "c56db41508c4c3c0d5782e40e4f153c38a1154ac9466c1c5c50a6e4bd09f6a69"),
+    ("turbo", "Q6_K"): ("Qwen-Image-2.1-Turbo-AD-Q6_K.gguf", 6711985888, "aa98b85820544771506b94aa75368a97a457e0d5b569d1a602bde6c64f5a9cfd"),
+    ("turbo", "Q8_0"): ("Qwen-Image-2.1-Turbo-Q8_0.gguf", 7591554784, "99f498fb7188be7eac9eb5f345a9e074d30eef3ca235b419e92563e5b48073c4"),
+    ("turbo", "BF16"): ("Qwen-Image-2.1-Turbo-BF16.gguf", 14230275808, "9849f4f5606e7130dafa8ca4fe6d773d91d83b0eed983f6245de3195c9105949"),
 }
 
 _TEXT_ENCODER = {
@@ -111,10 +120,12 @@ _MATTE = {
 
 
 def diffusion_file(cfg: Config) -> ModelFile:
-    name, size, sha = _DIFFUSION[(cfg.model.variant, cfg.model.quant)]
-    rev = DIFFUSION_REVISIONS[cfg.model.variant]
-    return ModelFile("diffusion", _hf_url(DIFFUSION_REPO, rev, name), f"diffusion_models/{name}", size, sha,
-                     f"Qwen-Image-2.1 {cfg.model.variant} {cfg.model.quant} diffusion transformer",
+    variant = cfg.model.variant
+    name, size, sha = _DIFFUSION[(variant, cfg.model.quant)]
+    rev = DIFFUSION_REVISIONS[variant]
+    model = "Qwen-Image-2.1-Turbo" if variant == "turbo" else f"Qwen-Image-2.1 {variant}"
+    return ModelFile("diffusion", _hf_url(DIFFUSION_REPOS[variant], rev, name), f"diffusion_models/{name}", size, sha,
+                     f"{model} {cfg.model.quant} diffusion transformer",
                      "Qwen Research License")
 
 
