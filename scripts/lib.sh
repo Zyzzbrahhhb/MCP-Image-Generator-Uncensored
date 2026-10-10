@@ -384,11 +384,40 @@ pick_gpus() {
     echo "Please type two or more different GPU numbers from the list, for example $all."
   done
 }
+# gpu_warnings IMG TE DEC PRESET_LINE: a line for each GPU that may run out of memory with these places.
+# A GPU needs its model files plus the working memory of the largest step that runs on it (the steps run one after
+# another): the image model about 3 GB, the image decoder about 4 GB (1024x1024), the text encoder 1.5-2.2 GB. On a
+# GPU under 20 GB the text encoder's weights stay in RAM (about 0.2 GB on the GPU). The limit is the memory minus 2 GB.
+# Measured on a 12 GB GPU: Best quality and Turbo fit in 10 GB; a 5 GB image model makes the decoder fall back to tiles.
+gpu_warnings() {
+  local ig eg
+  ig=$(image_gb "$4"); eg=$(encoder_gb "$4")
+  printf '%s\n' "$GPU_ROWS" | awk -F'|' -v img="$1" -v te="$2" -v dec="$3" -v ig="$ig" -v eg="$eg" '
+    { n = split(img, a, " "); files = 0; work = 0
+      for (j = 1; j <= n; j++) if (a[j] == $1) { files += ig / n; work = 3 }
+      if (te == $1) {
+        if ($3 < 20) { files += 0.2; if (work < 1.5) work = 1.5 } else { files += eg; if (work < 2.2) work = 2.2 }
+      }
+      if (dec == $1) { files += 0.7; if (work < 4) work = 4 }
+      need = files + work
+      if (files > 0 && need > $3 - 2)
+        printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %.0f GB.\n", $1, $2, $3, need }'
+}
+# show_warnings IMG TE DEC PRESET_LINE: print the memory warnings, if any. True when there were some.
+show_warnings() {
+  local warn
+  warn=$(gpu_warnings "$@")
+  if [ -z "$warn" ]; then return 1; fi
+  echo
+  echo "$warn"
+  echo "    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error."
+  return 0
+}
 # split_gpus PRESET_LINE: place the image model, the text encoder and the image decoder one by one, then show
 # all three with a warning for any GPU that may run out of memory, and confirm or start over.
 # Sets PLACE_IMG, PLACE_TE and PLACE_DEC.
 split_gpus() {
-  local img te dec ig eg warn
+  local img te dec ig eg
   ig=$(image_gb "$1"); eg=$(encoder_gb "$1")
   echo
   echo "Split $(pf "$1" 1): choose where each part of the model runs."
@@ -401,20 +430,7 @@ split_gpus() {
     printf '    %-24s %s\n' "Image model ($ig GB):" "$(place_label "$img")"
     printf '    %-24s %s\n' "Text encoder ($eg GB):" "$(place_label "$te")"
     printf '    %-24s %s\n' "Image decoder ($DECODER_GB GB):" "$(place_label "$dec")"
-    # Memory each GPU needs: the files plus working memory (image model +3 GB, split evenly; decoder +2.5 GB).
-    # On a GPU under 20 GB the server keeps the text encoder's weights in RAM, so it needs about 1.5 GB there.
-    warn=$(printf '%s\n' "$GPU_ROWS" | awk -F'|' -v img="$img" -v te="$te" -v dec="$dec" -v ig="$ig" -v eg="$eg" '
-      { n = split(img, a, " "); need = 0
-        for (j = 1; j <= n; j++) if (a[j] == $1) need += (ig + 3) / n
-        if (te == $1) need += ($3 < 20) ? 1.5 : eg + 2.2
-        if (dec == $1) need += 0.7 + 2.5
-        if (need > 0 && need > $3 - 2)
-          printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %.0f GB.\n", $1, $2, $3, need }')
-    if [ -n "$warn" ]; then
-      echo
-      echo "$warn"
-      echo "    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error."
-    fi
+    show_warnings "$img" "$te" "$dec" "$1" || true
     echo
     echo "  1) Confirm"
     echo "  2) Start over"
@@ -516,17 +532,25 @@ run_setup() {
     fi
   fi
   recommend
-  # Step 3: the model.
-  echo
-  echo "Which model do you want to use?"
-  echo
-  show_presets "$PRESET_REC" "$DEVICE_REC" "$cur"
-  if [ "$cur" -gt 0 ]; then pick_preset "$PRESET_COUNT" "$cur"; else pick_preset "$PRESET_COUNT" "$PRESET_REC"; fi
-  p=$(preset "$CHOICE")
+  # Step 3: the model. On one GPU, the same memory check as for a split.
+  while :; do
+    echo
+    echo "Which model do you want to use?"
+    echo
+    show_presets "$PRESET_REC" "$DEVICE_REC" "$cur"
+    if [ "$cur" -gt 0 ]; then pick_preset "$PRESET_COUNT" "$cur"; else pick_preset "$PRESET_COUNT" "$PRESET_REC"; fi
+    p=$(preset "$CHOICE")
+    if [ "$DEVICE_REC" != gpu ] || [ "${SPLIT:-0}" = 1 ]; then break; fi
+    PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG
+    if ! show_warnings "$PLACE_IMG" "$PLACE_TE" "$PLACE_DEC" "$p"; then break; fi
+    echo
+    echo "  1) Confirm"
+    echo "  2) Choose another model"
+    read_choice 2 1
+    if [ "$CHOICE" = 1 ]; then break; fi
+  done
   # Step 3b: the split, now that the model is known. A split that puts every part on one GPU is that GPU.
-  if [ "$DEVICE_REC" = gpu ]; then
-    if [ "${SPLIT:-0}" = 1 ]; then split_gpus "$p"; else PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG; fi
-  fi
+  if [ "$DEVICE_REC" = gpu ] && [ "${SPLIT:-0}" = 1 ]; then split_gpus "$p"; fi
   # Write config.yaml as the last step: Ctrl+C before this leaves config.yaml as it was. It is rewritten in place
   # (same file, same owner): the container mounts this file.
   tmp=$(mktemp)

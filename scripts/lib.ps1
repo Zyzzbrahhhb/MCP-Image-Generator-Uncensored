@@ -319,6 +319,37 @@ function Read-GpuList($m, [string]$Saved) {
         Write-Host "Please type two or more different GPU numbers from the list, for example $all."
     }
 }
+# A line for each GPU that may run out of memory with these places.
+# A GPU needs its model files plus the working memory of the largest step that runs on it (the steps run one after
+# another): the image model about 3 GB, the image decoder about 4 GB (1024x1024), the text encoder 1.5-2.2 GB. On a
+# GPU under 20 GB the text encoder's weights stay in RAM (about 0.2 GB on the GPU). The limit is the memory minus 2 GB.
+# Measured on a 12 GB GPU: Best quality and Turbo fit in 10 GB; a 5 GB image model makes the decoder fall back to tiles.
+function Get-GpuWarnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
+    $ig = [double](Get-ImageGB $Preset); $eg = [double](Get-EncoderGB $Preset)
+    $imgs = @($Img -split ' ')
+    foreach ($g in $m.Gpus) {
+        $files = 0.0; $work = 0.0; $id = "$($g.Index)"
+        if ($imgs -contains $id) { $files += $ig / $imgs.Count; $work = 3 }
+        if ($TE -eq $id) {
+            if ($g.GB -lt 20) { $files += 0.2; $work = [math]::Max($work, 1.5) }
+            else { $files += $eg; $work = [math]::Max($work, 2.2) }
+        }
+        if ($Dec -eq $id) { $files += 0.7; $work = [math]::Max($work, 4) }
+        $need = $files + $work
+        if ($files -gt 0 -and $need -gt $g.GB - 2) {
+            '    GPU {0} ({1}, {2} GB) may run out of memory: its parts need about {3:N0} GB.' -f $g.Index, $g.Name, $g.GB, $need
+        }
+    }
+}
+# Print the memory warnings, if any. Returns $true when there were some.
+function Show-Warnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
+    $warn = @(Get-GpuWarnings $m $Img $TE $Dec $Preset)
+    if ($warn.Count -eq 0) { return $false }
+    Write-Host ''
+    $warn | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+    Write-Host '    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.' -ForegroundColor Yellow
+    $true
+}
 # Place the image model, the text encoder and the image decoder one by one, then show all three with a warning for
 # any GPU that may run out of memory, and confirm or start over. Returns @{ Img; TE; Dec }.
 function Invoke-Split($m, $Preset, $Cur) {
@@ -334,23 +365,7 @@ function Invoke-Split($m, $Preset, $Cur) {
         Write-Host ('    {0,-24} {1}' -f "Image model ($ig GB):", (Get-PlaceLabel $m $img))
         Write-Host ('    {0,-24} {1}' -f "Text encoder ($eg GB):", (Get-PlaceLabel $m $te))
         Write-Host ('    {0,-24} {1}' -f "Image decoder ($DecoderGB GB):", (Get-PlaceLabel $m $dec))
-        # Memory each GPU needs: the files plus working memory (image model +3 GB, split evenly; decoder +2.5 GB).
-        # On a GPU under 20 GB the server keeps the text encoder's weights in RAM, so it needs about 1.5 GB there.
-        $imgs = @($img -split ' ')
-        $warn = @(foreach ($g in $m.Gpus) {
-            $need = 0.0; $id = "$($g.Index)"
-            if ($imgs -contains $id) { $need += ([double]$ig + 3) / $imgs.Count }
-            if ($te -eq $id) { $need += $(if ($g.GB -lt 20) { 1.5 } else { [double]$eg + 2.2 }) }
-            if ($dec -eq $id) { $need += 0.7 + 2.5 }
-            if ($need -gt 0 -and $need -gt $g.GB - 2) {
-                '    GPU {0} ({1}, {2} GB) may run out of memory: its parts need about {3:N0} GB.' -f $g.Index, $g.Name, $g.GB, $need
-            }
-        })
-        if ($warn.Count -gt 0) {
-            Write-Host ''
-            $warn | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
-            Write-Host '    The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.' -ForegroundColor Yellow
-        }
+        Show-Warnings $m $img $te $dec $Preset | Out-Null
         Write-Host ''
         Write-Host '  1) Confirm'
         Write-Host '  2) Start over'
@@ -441,19 +456,28 @@ function Invoke-Setup {
     $r = Get-Recommendation $m
     if (-not $sel) { $r.Device = 'cpu'; $r.Preset = $TurboChoice }
 
-    # Step 3: the model.
-    Write-Host ''
-    Write-Host 'Which model do you want to use?'
-    Write-Host ''
-    Show-Presets $r.Preset ($r.Device -eq 'cpu') $model.Index
-    $default = if ($model.Index -gt 0) { $model.Index } else { $r.Preset }
-    do { $n = Read-Choice $Presets.Count $default } until (Confirm-Choice $n $m)
-    $p = $Presets[$n - 1]
+    # Step 3: the model. On one GPU, the same memory check as for a split.
+    $place = $null
+    while ($true) {
+        Write-Host ''
+        Write-Host 'Which model do you want to use?'
+        Write-Host ''
+        Show-Presets $r.Preset ($r.Device -eq 'cpu') $model.Index
+        $default = if ($model.Index -gt 0) { $model.Index } else { $r.Preset }
+        do { $n = Read-Choice $Presets.Count $default } until (Confirm-Choice $n $m)
+        $p = $Presets[$n - 1]
+        if (-not $sel -or $sel.Split) { break }
+        $i = "$($sel.List[0])"
+        $place = @{ Img = $i; TE = $i; Dec = $i }
+        if (-not (Show-Warnings $m $i $i $i $p)) { break }
+        Write-Host ''
+        Write-Host '  1) Confirm'
+        Write-Host '  2) Choose another model'
+        if ((Read-Choice 2 1) -eq 1) { break }
+    }
 
     # Step 3b: the split, now that the model is known. A split that puts every part on one GPU is that GPU.
-    $place = $null
     if ($sel -and $sel.Split) { $place = Invoke-Split $m $p $cur }
-    elseif ($sel) { $i = "$($sel.List[0])"; $place = @{ Img = $i; TE = $i; Dec = $i } }
 
     # Build the whole file in memory and write it last: Ctrl+C before this point leaves config.yaml as it was.
     # Other settings in config.yaml are kept.
@@ -501,25 +525,34 @@ function Test-ServerRunning {
     $r = Invoke-Program 'docker' @('ps', '--filter', 'name=^imagegen-mcp$', '--format', '{{.Names}}')
     ($r.Code -eq 0) -and [bool](($r.Out -join '').Trim())
 }
+# Run a program straight in this console window and return its exit code. Its output is not captured, so it can draw
+# its own progress (docker compose build stops with "failed to get console" when its output goes into a pipe).
+function Invoke-Console([string]$Exe, [string[]]$ArgList) {
+    $path = (Get-Command $Exe -CommandType Application | Select-Object -First 1).Source
+    $p = Start-Process -FilePath $path -ArgumentList $ArgList -NoNewWindow -PassThru
+    $null = $p.Handle   # keeps the exit code readable after the program ends
+    $p.WaitForExit()
+    $p.ExitCode
+}
 # Step 4a. Builds the image (or pulls it with IMAGE_REPO) when it is missing, with -Force, or after an update changed
-# the server code. Returns $false when that failed. Docker's output goes to the console (Out-Host), not into the result.
+# the server code. Returns $false when that failed.
 function Build-Image($s, [bool]$Force) {
     if (Test-Path $BuildMark) { $Force = $true }
     $have = (Invoke-Program 'docker' @('image', 'inspect', $s.Image)).Code -eq 0
     if ($have -and -not $Force) { Write-Host '==> Using the image server you already built.'; return $true }
-    $ErrorActionPreference = 'Continue'
     if ($s.ImageRepo) {
         Write-Host "==> Downloading the image server ($($s.Image))..."
-        docker compose --profile $s.Profile pull | Out-Host
-        if ($LASTEXITCODE -eq 0) { Remove-Item $BuildMark -ErrorAction SilentlyContinue; return $true }
+        if ((Invoke-Console 'docker' @('compose', '--profile', $s.Profile, 'pull')) -eq 0) {
+            Remove-Item $BuildMark -ErrorAction SilentlyContinue
+            return $true
+        }
         Write-Host "The download failed (details are above). Check your internet connection, then run $Launcher again." -ForegroundColor Red
         return $false
     }
     if ($have) { Write-Host '==> Building the image server again (10-30 minutes)' }
     else { Write-Host '==> Building the image server (first time only, 10-30 minutes)' }
     Write-Host "    Docker's build output follows. Leave this window open until it finishes."
-    docker compose --profile $s.Profile build | Out-Host
-    if ($LASTEXITCODE -eq 0) {
+    if ((Invoke-Console 'docker' @('compose', '--profile', $s.Profile, 'build')) -eq 0) {
         Remove-Item $BuildMark -ErrorAction SilentlyContinue
         Write-Host '    The server is built.'
         return $true
