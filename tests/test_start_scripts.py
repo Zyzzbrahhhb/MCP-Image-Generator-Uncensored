@@ -27,8 +27,33 @@ def test_both_shells_offer_the_same_models():
     assert sh == ps1
     assert len(sh) == int(re.search(r"^PRESET_COUNT=(\d+)", LIB_SH, re.M).group(1))
     for row in sh:
-        name, variant, quant, te, gb, sec, needs = row.split("|")
-        assert variant in ("uncensored", "base", "turbo") and quant and te and float(gb) > 0 and int(sec) > 0
+        name, variant, quant, te, sec, ram, img, img_bytes, te_file, te_bytes = row.split("|")
+        assert variant in ("uncensored", "base", "turbo") and int(sec) > 0 and int(ram) > 0
+        assert int(img_bytes) > 0 and int(te_bytes) > 0
+
+
+def _shared(text: str, start: str, end: str) -> list[str]:
+    body = text[text.index(start):]
+    return re.findall(r"^\s*'?([a-z_]+/[^|']+\|\d+)'?\s*$", body[:body.index(end)], re.M)
+
+
+def test_model_files_match_the_server():
+    """The file names and sizes in the scripts (for "Download" and "GPU memory") are the server's files."""
+    from imagegen_mcp import models
+    from imagegen_mcp.config import Config
+
+    base = yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
+    shared_sh = _shared(LIB_SH, "shared_files() {", "\nEOF")
+    shared_ps1 = _shared(LIB_PS1, "$SharedFiles = @(", "\n)")
+    assert shared_sh == shared_ps1
+    for row in _sh_presets():
+        name, variant, quant, te, _, _, img, img_bytes, te_file, te_bytes = row.split("|")
+        cfg = Config.model_validate({**base, "model": {**base["model"], "variant": variant, "quant": quant,
+                                                       "text_encoder_quant": te}})
+        files = {f.dest: f.size for f in models.required_files(cfg)}
+        assert files.pop(img) == int(img_bytes), name
+        assert files.pop(te_file) == int(te_bytes), name
+        assert sorted(f"{k}|{v}" for k, v in files.items()) == sorted(shared_sh), name
 
 
 def test_turbo_choice_is_the_same():

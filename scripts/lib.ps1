@@ -6,16 +6,26 @@
 # Uses $Root and $Launcher from imagegen.ps1. Keep this file ASCII only (PowerShell 5.1).
 # Keep the texts and the model choices the same as in scripts/lib.sh (tests/test_start_scripts.py checks them).
 
-# The model choices, the same rows as in scripts/lib.sh:
-# name|variant|quant|text encoder quant|download GB|seconds per 1024x1024 image on a 12 GB GPU|needs
+# The model choices, the same rows as in scripts/lib.sh (tests/test_start_scripts.py checks the files against
+# src/imagegen_mcp/models.py): name|variant|quant|text encoder quant|seconds per 1024x1024 image on an RTX 3080 Ti|
+# memory for Docker in GB|image model file|its bytes|text encoder file|its bytes
 $Presets = @(
-    'Best quality|uncensored|Q4_K_M|Q8_0|15.5|90|GPU 12 GB+, 20 GB memory'
-    'Standard|uncensored|Q4_K_M|Q4_K_M|11.8|90|GPU 12 GB+, 16 GB memory'
-    'Turbo|turbo|Q4_K_M|Q4_K_M|11.4|12|GPU 8 GB+ or CPU, 16 GB memory'
+    'Best quality|uncensored|Q4_K_M|Q8_0|90|20|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q8_0.gguf|8709519456'
+    'Standard|uncensored|Q4_K_M|Q4_K_M|90|16|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800'
+    'Turbo|turbo|Q4_K_M|Q4_K_M|12|16|diffusion_models/Qwen-Image-2.1-Turbo-AD-Q4_K.gguf|4201694944|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800'
 ) | ForEach-Object {
     $f = $_ -split '\|'
-    [pscustomobject]@{ Name = $f[0]; Variant = $f[1]; Quant = $f[2]; TE = $f[3]; GB = $f[4]; Sec = $f[5]; Needs = $f[6] }
+    [pscustomobject]@{ Name = $f[0]; Variant = $f[1]; Quant = $f[2]; TE = $f[3]; Sec = $f[4]; RamGB = $f[5]
+                       ImageFile = $f[6]; ImageBytes = [int64]$f[7]; TEFile = $f[8]; TEBytes = [int64]$f[9] }
 }
+# The files that every model choice needs: path|bytes (under models\).
+$SharedFiles = @(
+    'text_encoders/mmproj-Qwen3VL-8B-Instruct-F16.gguf|1159029824'
+    'vae/texture_fix_vae_for_qwen_image_2.1_bf16.safetensors|675509688'
+    'background_removal/birefnet-general-lite.onnx|224005088'
+    'loras/watermark_remover_v2_qwen.safetensors|79744288'
+    'upscalers/4xNomos2_otf_esrgan.safetensors|33467822'
+)
 $TurboChoice = 3
 $ProjectUrl = 'https://github.com/hypersniper05/MCP-Image-Generator-Uncensored'
 # Set by the update when the server code changed: the next start builds the image again.
@@ -145,7 +155,8 @@ function Get-CurrentModel {
             return [pscustomobject]@{ Text = "$($p.Name) ($d)"; Index = $i + 1; Choice = $p }
         }
     }
-    $custom = [pscustomobject]@{ Name = 'custom'; Variant = $v; Quant = $q; TE = $t; GB = ''; Sec = ''; Needs = '' }
+    $custom = [pscustomobject]@{ Name = 'custom'; Variant = $v; Quant = $q; TE = $t; Sec = ''; RamGB = ''
+                                 ImageFile = ''; ImageBytes = [int64]0; TEFile = ''; TEBytes = [int64]0 }
     [pscustomobject]@{ Text = "custom ($d)"; Index = 0; Choice = $custom }
 }
 # The saved device and GPU places: Device, Img ("0" or "0 2"), TE ("2", "ram" or "cpu") and Dec ("2" or "cpu").
@@ -255,13 +266,27 @@ function Test-Docker {
 # Show the GPUs; with more than one, ask which one to use. Returns @{ List = GPU numbers; Split = $true/$false }.
 # A GPU gets every part of the model. The last choice, custom load, is set up after the model is chosen
 # (Invoke-Split), because where the parts fit depends on the model's size.
+# The GPU with the most memory (the first one of those).
+function Get-LargestGpu($m) { @($m.Gpus | Sort-Object -Property @{ Expression = 'GB'; Descending = $true }, Index)[0].Index }
+# The model choice that a GPU of this size suits best, and whether all of it fits on the GPU.
+function Get-GpuFit($m, [int]$GB) {
+    $cap = if ($GB -lt 20) { $GB - 2 } else { $GB }
+    if ($GB -lt 8) { return 'too small' }
+    if ($GB -lt 12) { return 'Turbo' }
+    $p = if ($m.DockerGB -eq 0 -or $m.DockerGB -ge 20) { $Presets[0] } else { $Presets[1] }
+    if ((Get-GpuNeed $p) -le $cap) { "$($p.Name), all on the GPU" } else { "$($p.Name), some weights in RAM" }
+}
 function Select-Gpu($m, [string]$Default) {
     if ($m.GpuCount -eq 1) {
-        Write-Host "    GPU: $($m.Gpus[0].Name), $($m.Gpus[0].GB) GB"
+        Write-Host "    GPU: $($m.Gpus[0].Name), $($m.Gpus[0].GB) GB ($(Get-GpuFit $m $m.Gpus[0].GB))"
         return @{ List = @($m.Gpus[0].Index); Split = $false }
     }
+    $best = Get-LargestGpu $m
     Write-Host '    GPUs found:'
-    foreach ($g in $m.Gpus) { Write-Host "      $($g.Index)) $($g.Name), $($g.GB) GB" }
+    foreach ($g in $m.Gpus) {
+        $mark = if ($g.Index -eq $best) { '  <- recommended' } else { '' }
+        Write-Host ('      {0,-38} {1}{2}' -f "$($g.Index)) $($g.Name), $($g.GB) GB", (Get-GpuFit $m $g.GB), $mark)
+    }
     Write-Host "      $($m.GpuCount)) Custom load (multi-GPU and CPU)"
     Write-Host ''
     Write-Host 'Which GPU should the image server use?'
@@ -294,25 +319,47 @@ function Get-Recommendation($m) {
     $preset = if ($m.VramGB -lt 12) { $TurboChoice } elseif ($m.DockerGB -ge 20) { 1 } else { 2 }
     @{ Device = 'gpu'; Preset = $preset }
 }
+# The bytes that a model choice still has to download (files that are missing or not complete).
+function Get-MissingBytes($Preset) {
+    $sum = [int64]0
+    $files = @("$($Preset.ImageFile)|$($Preset.ImageBytes)", "$($Preset.TEFile)|$($Preset.TEBytes)") + $SharedFiles
+    foreach ($row in $files) {
+        $path, $bytes = $row -split '\|'
+        if (-not $path) { continue }
+        $full = Join-Path (Join-Path $Root 'models') $path
+        $item = Get-Item -LiteralPath $full -ErrorAction SilentlyContinue
+        if (-not $item -or $item.Length -ne [int64]$bytes) { $sum += [int64]$bytes }
+    }
+    $sum
+}
+# GB of GPU memory for the whole model on one GPU: the image model and the text encoder, the decoder (0.7 GB) and the
+# working memory of the largest step (about 4 GB at 1024x1024). See Get-GpuWarnings.
+function Get-GpuNeed($Preset) { [int][math]::Floor(($Preset.ImageBytes + $Preset.TEBytes) / 1e9 + 0.7 + 4 + 0.5) }
 # With -Custom (the text of a model that is none of the choices), a last line offers to keep it.
 function Show-Presets([int]$Recommended, [bool]$Cpu, [int]$Current, [string]$Custom = '') {
-    Write-Host '    Choice          Download  Time per image  Needs'
+    if ($Cpu) { Write-Host '    Choice          Download     Memory       Time per image' }
+    else { Write-Host '    Choice          Download     GPU memory   Time per image' }
     for ($i = 0; $i -lt $Presets.Count; $i++) {
         $p = $Presets[$i]
+        $missing = Get-MissingBytes $p
+        $dl = if ($missing -eq 0) { 'downloaded' } else { '{0:0.0} GB' -f ($missing / 1e9) }
+        $mem = if ($Cpu) { "$($p.RamGB) GB" } else { "$(Get-GpuNeed $p) GB" }
         $time = if ($Cpu) { 'minutes' } else { "~$($p.Sec) s" }
-        $needs = if ($Cpu) { $p.Needs -replace '^.*, ', '' } else { $p.Needs }
         $mark = ''
         if ($i + 1 -eq $Current -and $i + 1 -eq $Recommended) { $mark = '  <- current, recommended' }
         elseif ($i + 1 -eq $Current) { $mark = '  <- current' }
         elseif ($i + 1 -eq $Recommended) { $mark = '  <- recommended' }
-        $line = ' {0}) {1,-15} {2,5} GB  {3,-14}  {4}' -f ($i + 1), $p.Name, $p.GB, $time, $needs
+        $line = ' {0}) {1,-15} {2,-12} {3,-12} {4}' -f ($i + 1), $p.Name, $dl, $mem, $time
         if ($mark) { Write-Host "$line$mark" -ForegroundColor Green } else { Write-Host $line }
     }
     if ($Custom) { Write-Host (' {0}) Keep the current model: {1}  <- current' -f ($Presets.Count + 1), $Custom) -ForegroundColor Green }
     Write-Host ''
-    if ($Cpu) { Write-Host ' On the CPU every image takes several minutes. 1 and 2 use the uncensored model.' }
-    else { Write-Host ' Times are for one 1024x1024 image on a 12 GB GPU. 1 and 2 use the uncensored model.' }
-    Write-Host " $TurboChoice uses the official Turbo model (not uncensored): much faster, weaker at small text."
+    if ($Cpu) { Write-Host ' Memory: what Docker needs. On the CPU, each image takes several minutes.' }
+    else {
+        Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM, at the same speed.'
+        Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti.'
+    }
+    Write-Host " 1 and 2 use the uncensored model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
 }
 # Best quality needs about 18 GB of memory: ask before using it when Docker has less than 20 GB.
 function Confirm-Choice([int]$Choice, $m) {
@@ -324,9 +371,13 @@ function Confirm-Choice([int]$Choice, $m) {
 # --- step 3b: where each part of the model runs (only after "Split") ------------------------------------------------
 # Sizes in GB of the parts of a model choice (the files the server loads), as text so they print like lib.sh.
 function Get-ImageGB($Preset) {
+    if ($Preset.ImageBytes -gt 0) { return '{0:0.0}' -f ($Preset.ImageBytes / 1e9) }
     switch ($Preset.Quant) { 'Q6_K' { '5.9' } 'Q8_0' { '7.6' } default { if ($Preset.Variant -eq 'turbo') { '4.2' } else { '4.6' } } }
 }
-function Get-EncoderGB($Preset) { switch ($Preset.TE) { 'Q8_0' { '8.7' } 'F16' { '16.4' } default { '5.0' } } }
+function Get-EncoderGB($Preset) {
+    if ($Preset.TEBytes -gt 0) { return '{0:0.0}' -f ($Preset.TEBytes / 1e9) }
+    switch ($Preset.TE) { 'Q8_0' { '8.7' } 'F16' { '16.4' } default { '5.0' } }
+}
 $DecoderGB = '0.7'
 # The menu number for a saved place. Kind: image, te or dec. Host: the first GPU of the image model. Without a valid
 # saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else that GPU); the
@@ -506,7 +557,7 @@ function Invoke-Setup {
     } elseif ($m.GpuCount -eq 0) {
         Confirm-Cpu 'No NVIDIA GPU was found, so the server can only run on the CPU.' $m
     } else {
-        $default = "$($m.Gpus[0].Index)"
+        $default = "$(Get-LargestGpu $m)"
         if ($cur.Device -eq 'gpu') {
             if ($cur.Img -ne $cur.TE -or $cur.TE -ne $cur.Dec) { $default = "$($m.GpuCount)" }   # a custom load
             elseif ($cur.Img -match '^[0-9]+$' -and (Get-Gpu $m ([int]$cur.Img))) { $default = $cur.Img }
@@ -542,7 +593,9 @@ function Invoke-Setup {
     $place = $null
     while ($true) {
         Write-Host ''
-        Write-Host 'Which model do you want to use?'
+        if (-not $sel) { Write-Host 'Which model do you want to use? (on the CPU)' }
+        elseif ($sel.Split) { Write-Host 'Which model do you want to use? (custom load)' }
+        else { $g = Get-Gpu $m $sel.List[0]; Write-Host "Which model do you want to use? (on GPU $($g.Index): $($g.Name), $($g.GB) GB)" }
         Write-Host ''
         # A model that is none of the choices (set by hand in config.yaml) is offered as one more choice.
         $custom = if ($haveConfig -and $model.Index -eq 0) { $model.Text } else { '' }

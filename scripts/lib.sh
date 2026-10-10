@@ -18,15 +18,42 @@ LAUNCHER=${LAUNCHER:-$(launcher start)}
 # interactive: true when a person runs this in a terminal, so questions can be asked.
 interactive() { [ -t 0 ] && [ -t 1 ]; }
 
-# The model choices, the same rows as in scripts/lib.ps1:
-# name|variant|quant|text encoder quant|download GB|seconds per 1024x1024 image on a 12 GB GPU|needs
+# The model choices, the same rows as in scripts/lib.ps1 (tests/test_start_scripts.py checks the files against
+# src/imagegen_mcp/models.py): name|variant|quant|text encoder quant|seconds per 1024x1024 image on an RTX 3080 Ti|
+# memory for Docker in GB|image model file|its bytes|text encoder file|its bytes
 presets() {
   cat <<'EOF'
-Best quality|uncensored|Q4_K_M|Q8_0|15.5|90|GPU 12 GB+, 20 GB memory
-Standard|uncensored|Q4_K_M|Q4_K_M|11.8|90|GPU 12 GB+, 16 GB memory
-Turbo|turbo|Q4_K_M|Q4_K_M|11.4|12|GPU 8 GB+ or CPU, 16 GB memory
+Best quality|uncensored|Q4_K_M|Q8_0|90|20|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q8_0.gguf|8709519456
+Standard|uncensored|Q4_K_M|Q4_K_M|90|16|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800
+Turbo|turbo|Q4_K_M|Q4_K_M|12|16|diffusion_models/Qwen-Image-2.1-Turbo-AD-Q4_K.gguf|4201694944|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800
 EOF
 }
+# The files that every model choice needs: path|bytes (under models/).
+shared_files() {
+  cat <<'EOF'
+text_encoders/mmproj-Qwen3VL-8B-Instruct-F16.gguf|1159029824
+vae/texture_fix_vae_for_qwen_image_2.1_bf16.safetensors|675509688
+background_removal/birefnet-general-lite.onnx|224005088
+loras/watermark_remover_v2_qwen.safetensors|79744288
+upscalers/4xNomos2_otf_esrgan.safetensors|33467822
+EOF
+}
+# missing_bytes PRESET_LINE: the bytes that this choice still has to download (files that are missing or not complete).
+missing_bytes() {
+  local path bytes sum=0
+  while IFS='|' read -r path bytes; do
+    if [ -z "$path" ]; then continue; fi
+    if [ ! -f "models/$path" ] || [ "$(wc -c < "models/$path" | tr -d ' ')" != "$bytes" ]; then sum=$((sum + bytes)); fi
+  done <<EOF
+$(pf "$1" 7)|$(pf "$1" 8)
+$(pf "$1" 9)|$(pf "$1" 10)
+$(shared_files)
+EOF
+  echo "$sum"
+}
+# gpu_need PRESET_LINE: GB of GPU memory for the whole model on one GPU: the image model and the text encoder, the
+# decoder (0.7 GB) and the working memory of the largest step (about 4 GB at 1024x1024). See gpu_warnings.
+gpu_need() { awk -v d="$(pf "$1" 8)" -v t="$(pf "$1" 10)" 'BEGIN { printf "%d", (d + t) / 1e9 + 0.7 + 4 + 0.5 }'; }
 PRESET_COUNT=3
 TURBO=3   # the choice for small GPUs, the CPU and Macs
 
@@ -130,7 +157,7 @@ read_model() {
   case "$q" in Q4|Q4_K) q=Q4_K_M ;; Q5|Q5_K) q=Q5_K_M ;; Q6) q=Q6_K ;; Q8) q=Q8_0 ;; esac
   t=$(yaml_in model text_encoder_quant | tr '[:lower:]' '[:upper:]'); t=${t:-Q4_K_M}
   CUR_MODEL_TEXT="$v $q, text encoder $t"
-  CUR_CHOICE="custom|$v|$q|$t|||"
+  CUR_CHOICE="custom|$v|$q|$t||||||"
   CUR_PRESET=$(presets | awk -F'|' -v v="$v" -v q="$q" -v t="$t" '$2 == v && $3 == q && $4 == t { print NR; f = 1; exit }
     END { if (!f) print 0 }')
 }
@@ -180,6 +207,19 @@ detect() {
   use_gpus "$(first_gpu)"
 }
 first_gpu() { printf '%s\n' "$GPU_ROWS" | head -n1 | cut -d'|' -f1; }
+# largest_gpu: the GPU with the most memory (the first one of those).
+largest_gpu() { printf '%s\n' "$GPU_ROWS" | sort -t'|' -k3,3nr -s | head -n1 | cut -d'|' -f1; }
+# gpu_fit GB: the model choice that a GPU of this size suits best, and whether all of it fits on the GPU.
+gpu_fit() {
+  local p cap=$1
+  if [ "$1" -lt 20 ]; then cap=$(($1 - 2)); fi
+  if [ "$1" -lt 8 ]; then echo "too small"; return 0; fi
+  if [ "$1" -lt 12 ]; then echo "Turbo"; return 0; fi
+  if [ "$DOCKER_GB" -eq 0 ] || [ "$DOCKER_GB" -ge 20 ]; then p=$(preset 1); else p=$(preset 2); fi
+  if [ "$(gpu_need "$p")" -le "$cap" ]; then echo "$(pf "$p" 1), all on the GPU"
+  else echo "$(pf "$p" 1), some weights in RAM"
+  fi
+}
 # gpu_gb INDEX: the memory of that GPU in GB (empty when there is no such GPU).
 gpu_gb() { printf '%s\n' "$GPU_ROWS" | awk -F'|' -v i="$1" '$1 == i { print $3; exit }'; }
 # use_gpus "INDEX [INDEX...]": sets GPU_INDEX (the first one), GPU_NAME and VRAM_GB (their total).
@@ -281,11 +321,17 @@ check_docker() {
 # every part of the model. The last choice, custom load, is set up after the model is chosen (split_gpus), because
 # where the parts fit depends on the model's size.
 choose_gpus() {
-  local idx name gb
+  local idx name gb best mark
   SPLIT=0
-  if [ "$GPU_COUNT" -eq 1 ]; then echo "    GPU: $GPU_NAME, $VRAM_GB GB"; PLACE_IMG=$GPU_INDEX; return 0; fi
+  if [ "$GPU_COUNT" -eq 1 ]; then
+    echo "    GPU: $GPU_NAME, $VRAM_GB GB ($(gpu_fit "$VRAM_GB"))"; PLACE_IMG=$GPU_INDEX; return 0
+  fi
+  best=$(largest_gpu)
   echo "    GPUs found:"
-  printf '%s\n' "$GPU_ROWS" | while IFS='|' read -r idx name gb; do echo "      $idx) $name, $gb GB"; done
+  printf '%s\n' "$GPU_ROWS" | while IFS='|' read -r idx name gb; do
+    if [ "$idx" = "$best" ]; then mark="  <- recommended"; else mark=; fi
+    printf '      %-38s %s%s\n' "$idx) $name, $gb GB" "$(gpu_fit "$gb")" "$mark"
+  done
   echo "      $GPU_COUNT) Custom load (multi-GPU and CPU)"
   echo
   echo "Which GPU should the image server use?"
@@ -331,25 +377,32 @@ recommend() {
 # show_presets RECOMMENDED cpu|gpu CURRENT [CUSTOM]: print the model choices (CURRENT 0 = no current model). With
 # CUSTOM (the text of a model that is none of the choices), a last line offers to keep it.
 show_presets() {
-  local i=0 name v q t gb sec need tm mark
-  echo "    Choice          Download  Time per image  Needs"
-  presets | while IFS='|' read -r name v q t gb sec need; do
-    i=$((i + 1)); tm="~$sec s"; mark=
-    if [ "$2" = cpu ]; then tm=minutes; need=$(printf '%s' "$need" | sed 's/^.*, //'); fi
+  local i=0 p dl mem tm mark
+  if [ "$2" = cpu ]; then echo "    Choice          Download     Memory       Time per image"
+  else echo "    Choice          Download     GPU memory   Time per image"
+  fi
+  while IFS= read -r p; do
+    i=$((i + 1)); mark=
+    dl=$(missing_bytes "$p")
+    if [ "$dl" = 0 ]; then dl=downloaded; else dl=$(awk -v b="$dl" 'BEGIN { printf "%.1f GB", b / 1e9 }'); fi
+    if [ "$2" = cpu ]; then mem="$(pf "$p" 6) GB"; tm=minutes; else mem="$(gpu_need "$p") GB"; tm="~$(pf "$p" 5) s"; fi
     if [ "$i" = "$3" ] && [ "$i" = "$1" ]; then mark="  <- current, recommended"
     elif [ "$i" = "$3" ]; then mark="  <- current"
     elif [ "$i" = "$1" ]; then mark="  <- recommended"
     fi
-    printf ' %d) %-15s %5s GB  %-14s  %s%s\n' "$i" "$name" "$gb" "$tm" "$need" "$mark"
-  done
+    printf ' %d) %-15s %-12s %-12s %s%s\n' "$i" "$(pf "$p" 1)" "$dl" "$mem" "$tm" "$mark"
+  done <<EOF
+$(presets)
+EOF
   if [ -n "${4:-}" ]; then echo " $((PRESET_COUNT + 1))) Keep the current model: $4  <- current"; fi
   echo
   if [ "$2" = cpu ]; then
-    echo " On the CPU every image takes several minutes. 1 and 2 use the uncensored model."
+    echo " Memory: what Docker needs. On the CPU, each image takes several minutes."
   else
-    echo " Times are for one 1024x1024 image on a 12 GB GPU. 1 and 2 use the uncensored model."
+    echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM, at the same speed."
+    echo " Times: one 1024x1024 image on an RTX 3080 Ti."
   fi
-  echo " $TURBO uses the official Turbo model (not uncensored): much faster, weaker at small text."
+  echo " 1 and 2 use the uncensored model. $TURBO uses the official Turbo model: much faster, weaker at small text."
 }
 # pick_preset MAX DEFAULT: sets CHOICE. Best quality with little memory for Docker asks first.
 pick_preset() {
@@ -364,9 +417,13 @@ pick_preset() {
 # --- step 3b: where each part of the model runs (only after "Split") --------------------------------------------------
 # Sizes in GB of the parts of a model choice (the files the server loads).
 image_gb() {
+  if [ -n "$(pf "$1" 8)" ]; then awk -v b="$(pf "$1" 8)" 'BEGIN { printf "%.1f", b / 1e9 }'; return 0; fi
   case "$(pf "$1" 3)" in Q6_K) echo 5.9 ;; Q8_0) echo 7.6 ;; *) case "$(pf "$1" 2)" in turbo) echo 4.2 ;; *) echo 4.6 ;; esac ;; esac
 }
-encoder_gb() { case "$(pf "$1" 4)" in Q8_0) echo 8.7 ;; F16) echo 16.4 ;; *) echo 5.0 ;; esac; }
+encoder_gb() {
+  if [ -n "$(pf "$1" 10)" ]; then awk -v b="$(pf "$1" 10)" 'BEGIN { printf "%.1f", b / 1e9 }'; return 0; fi
+  case "$(pf "$1" 4)" in Q8_0) echo 8.7 ;; F16) echo 16.4 ;; *) echo 5.0 ;; esac
+}
 DECODER_GB=0.7
 # part_default PLACE image|te|dec HOST: the menu number for a saved place. HOST is the first GPU of the image model.
 # Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else
@@ -565,7 +622,7 @@ run_setup() {
   elif [ "$GPU_COUNT" -eq 0 ]; then
     cpu_ok "No NVIDIA GPU was found, so the server can only run on the CPU."
   else
-    gpu_default=$(first_gpu)
+    gpu_default=$(largest_gpu)
     if [ "$CUR_DEVICE" = gpu ]; then
       if [ "$CUR_IMG" != "$CUR_TE" ] || [ "$CUR_TE" != "$CUR_DEC" ]; then gpu_default=$GPU_COUNT   # a custom load
       elif [ -n "$(gpu_gb "$CUR_IMG")" ]; then gpu_default=$CUR_IMG
@@ -602,7 +659,10 @@ run_setup() {
   # Step 3: the model. On one GPU, the same memory check as for a split.
   while :; do
     echo
-    echo "Which model do you want to use?"
+    if [ "$DEVICE_REC" = cpu ]; then echo "Which model do you want to use? (on the CPU)"
+    elif [ "${SPLIT:-0}" = 1 ]; then echo "Which model do you want to use? (custom load)"
+    else echo "Which model do you want to use? (on GPU $PLACE_IMG: $GPU_NAME, $VRAM_GB GB)"
+    fi
     echo
     # A model that is none of the choices (set by hand in config.yaml) is offered as one more choice.
     if [ -f config.yaml ] && [ "$cur" = 0 ]; then custom="custom ($CUR_MODEL_TEXT)"; fi
