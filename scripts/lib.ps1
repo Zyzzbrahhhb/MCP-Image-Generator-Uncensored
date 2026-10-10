@@ -800,7 +800,7 @@ function Show-Stopped {
 }
 # Steps 4b and 4c. Shows the download and the model loading until the server is ready. Returns $false on an error.
 function Wait-Ready($s, $m) {
-    $said = ''; $line = ''; $silent = 0
+    $said = ''; $line = ''; $silent = 0; $loading = 0
     $c = Get-ContainerState
     $restarts = if ($c) { $c.Restarts } else { 0 }
     while ($true) {
@@ -839,6 +839,15 @@ function Wait-Ready($s, $m) {
                         elseif ($where -like 'image model*') { Write-Host "==> Loading the model ($where)..." }
                         else { Write-Host "==> Loading the model on $where..." }
                         $said = 'loading'
+                    }
+                    # Polls are 2 s apart: a note after one minute, then the minutes on one line.
+                    $loading++
+                    if ($loading -eq 30) {
+                        Write-Host '    This can take several minutes on the first start, or on a GPU with little memory.'
+                    }
+                    if ($loading % 30 -eq 0) {
+                        $line = "    still loading: $($loading / 30) min"
+                        Write-Host -NoNewline "`r$line   "
                     }
                 }
                 'ready' { if ($line) { Write-Host '' }; return $true }

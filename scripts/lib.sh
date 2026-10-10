@@ -850,7 +850,7 @@ explain_server_error() {
 }
 # wait_ready: steps 4b and 4c. Shows the download and the model loading until the server is ready.
 wait_ready() {
-  local body state dl total pct err where cs st rc restarts line= said= silent=0
+  local body state dl total pct err where cs st rc restarts line= said= silent=0 loading=0
   cs=$(container_state); restarts=${cs##* }
   case "$restarts" in ''|*[!0-9]*) restarts=0 ;; esac
   while :; do
@@ -895,6 +895,15 @@ wait_ready() {
               *) echo "==> Loading the model on $where..." ;;
             esac
             said=loading
+          fi
+          # Polls are 2 s apart: a note after one minute, then the minutes on one line.
+          loading=$((loading + 1))
+          if [ "$loading" = 30 ]; then
+            echo "    This can take several minutes on the first start, or on a GPU with little memory."
+          fi
+          if [ $((loading % 30)) = 0 ]; then
+            line="    still loading: $((loading / 30)) min"
+            printf '\r%s   ' "$line"
           fi ;;
         ready)
           if [ -n "$line" ]; then echo; fi

@@ -178,6 +178,8 @@ Status page: http://localhost:5005 (open it in a browser)
 ```
 
 - If the build or the download stops, run `start.cmd` again. Both continue where they stopped.
+- Loading can take several minutes on the first start, or on a GPU with little memory. After one minute, the
+  script shows `still loading: 1 min`, `2 min` and so on. On a GTX 1650 (4 GB), the first start took 6.5 minutes.
 - Add the address to your AI app (your MCP client). See [Connect an MCP client](../README.md#connect-an-mcp-client).
 - The server runs in Docker, not in the window. You can close the window. Docker starts the server again after
   a restart of the computer, until you run `stop.cmd`.
