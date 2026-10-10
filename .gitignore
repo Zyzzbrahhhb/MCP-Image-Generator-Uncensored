@@ -36,6 +36,9 @@ Thumbs.db
 # machine-specific compose settings (GPU pinning, resource limits)
 docker-compose.override.yml
 
+# set by update when the server code changed: the next start builds the image again
+.build-needed
+
 # leftovers
 *.bak-*
 *.orig

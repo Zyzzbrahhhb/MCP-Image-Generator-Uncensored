@@ -1,6 +1,6 @@
 # Image Gen MCP
 #
-# Use the start scripts (./start.sh or .\start.ps1): they read `device:` from
+# Use the start scripts (start.cmd or ./start.sh): they read `device:` from
 # config.yaml and start the matching service. Manual equivalent (once: copy
 # config.example.yaml to config.yaml and .env.example to .env; COMPOSE_PROFILES
 # in .env picks gpu or cpu, so later `docker compose logs/restart` match):

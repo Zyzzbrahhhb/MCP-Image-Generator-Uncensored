@@ -4,8 +4,8 @@ A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server t
 with the **uncensored Qwen-Image-2.1** model on your own computer. It runs in Docker, on an NVIDIA GPU or on
 the CPU, and any MCP client on your network can use it over Streamable HTTP.
 
-The default model is an uncensored build of Qwen-Image-2.1 with no built-in content filter. To use the
-standard model instead, set `model.variant: base` in `config.yaml`.
+The default model is an uncensored build of Qwen-Image-2.1 with no built-in content filter. A much faster
+Turbo model and the standard model are also available: see [Choosing a model](#choosing-a-model).
 
 - **Text to image** in any size or aspect ratio, up to about 4 megapixels (2048x2048)
 - **Image editing**: change, add or remove things, restyle, or combine up to 10 images
@@ -102,10 +102,10 @@ Characters and brands shown belong to their owners.
 
 | | GPU mode | CPU mode |
 |---|---|---|
-| Docker | Docker Desktop (Windows, macOS) or Docker Engine with Compose (Linux) | same |
+| Docker | Docker Desktop (Windows) or Docker Engine with Compose (Linux) | Docker Desktop (Windows) or Docker Engine with Compose (Linux) |
 | Hardware | NVIDIA GPU, RTX 20xx or newer, 12 GB VRAM or more (see [GPU memory](#gpu-memory)), 32 GB RAM recommended | Any modern 64-bit CPU, 24 GB RAM or more |
 | Driver | NVIDIA driver 570 or newer | - |
-| Disk | About 12 GB for models and 6 GB for the Docker image | About 12 GB and 1 GB |
+| Disk | 12-16 GB for models (see [Choosing a model](#choosing-a-model)) and 6 GB for the Docker image | 12-16 GB and 1 GB |
 
 **GPU setup**
 
@@ -129,7 +129,7 @@ Every feature, including 2048x2048 images, edits with 10 input images, 2880x1440
 |---|---|---|
 | 24 GB or more | default | Everything stays on the GPU, the fastest setup. Peak use is about 18 GB |
 | 12-16 GB | the settings below | Peak use is about 11 GB. The text encoder's weights stay in system RAM, so the server uses up to about 15 GB of RAM |
-| 8-10 GB | `offload: cpu` and smaller sizes | Not tested. All weights stream from RAM: slower, and the largest sizes may not fit |
+| 8-10 GB | Turbo ([Choosing a model](#choosing-a-model)), `max_vram_gb` = GPU memory minus 2 | Not tested. The largest sizes may not fit |
 
 Settings for a 12 GB card, in `config.yaml`:
 
@@ -143,29 +143,42 @@ generation:
 
 ## Quick start
 
-```bash
-git clone https://github.com/hypersniper05/MCP-Image-Generator-Uncensored.git
-cd MCP-Image-Generator-Uncensored
-./start.sh            # Linux / macOS
-```
+1. Install Docker (see [Requirements](#requirements)) and start it. On Windows, open Docker Desktop and wait
+   until it shows that it is running.
+2. Download this project with [Git](https://git-scm.com/downloads):
 
-```powershell
-.\start.cmd           # Windows (or double-click start.cmd)
-```
+   ```bash
+   git clone https://github.com/hypersniper05/MCP-Image-Generator-Uncensored.git
+   cd MCP-Image-Generator-Uncensored
+   ```
 
-The first start builds the Docker image (10-30 minutes) and downloads about 12 GB of models. When it is
-ready, the script prints the address:
+   Without Git: on GitHub click **Code > Download ZIP** and unzip it (updates then mean downloading it again).
+3. Run the start script from that folder:
+   - **Windows**: double-click `start.cmd`
+   - **Linux**: run `./start.sh`
+4. The first start runs the setup: it asks which GPU and which model to use (see
+   [Choosing a model](#choosing-a-model)) and sets the GPU memory settings for you. If you are not sure, press
+   Enter to take the recommended choice.
+5. Wait. The first start builds the Docker image (10-30 minutes) and downloads 11-16 GB of models into the
+   `models` folder. When it is ready, the script prints the address:
 
-```
-Ready. MCP endpoint (Streamable HTTP, no auth):
-    http://localhost:5005/mcp
-```
+   ```
+   Ready. Add this address to your AI app as an MCP server:
+       http://localhost:5005/mcp
+   ```
 
-- **Stop**: `./stop.sh` or `stop.cmd`. **Logs**: `docker compose logs -f`.
+6. Add that address to your MCP client (see [Connect an MCP client](#connect-an-mcp-client)).
+
+- **Change the model or the GPU**: run `setup.cmd` (Windows) or `./setup.sh` (Linux). Your current settings are
+  the defaults, so Enter keeps them.
+- **Update**: run `update.cmd` or `./update.sh`. Your settings and model files are kept.
+- **Stop**: `stop.cmd` or `./stop.sh`. **Logs**: `docker compose logs -f`.
 - **Web page**: open `http://localhost:5005/` to see the status, upload images and browse recent results.
-- **Settings**: the first start creates `config.yaml` from [`config.example.yaml`](config.example.yaml). To
-  run on the CPU, set `device: cpu` in `config.yaml` and run the start script again.
-- **Updates**: after pulling new code, run `./start.sh --build` (or `start.cmd -Build`) to rebuild the image.
+- **Model files** are saved in the `models` folder. After you change the model, the old files stay there:
+  delete the ones you no longer use to free disk space.
+- **Settings**: your choices are saved in `config.yaml` (created from
+  [`config.example.yaml`](config.example.yaml)).
+- **Updates by hand**: `git pull`, then `./start.sh --build` (or `start.cmd -Build`).
 
 <details>
 <summary>Start without the scripts</summary>
@@ -183,6 +196,31 @@ docker compose up -d --build
 > can make images and see every image on the server, and so can a web page open in a browser on your network.
 > Run it on your own computer or a network you trust, use a VPN such as Tailscale for remote access, and never
 > forward the port to the internet.
+
+## Choosing a model
+
+The setup asks which model to use (the first start runs it). Run `setup.cmd` or `./setup.sh` at any time to
+change it.
+
+| Your GPU memory | Setup choice | Model + text encoder (file sizes) | Download | RAM used | 1024x1024 image |
+|---|---|---|---|---|---|
+| 12 GB or more | **Best quality** | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB | 89 s |
+| 12 GB or more | Standard | Uncensored Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 15 GB | 89 s |
+| 8 GB or more (below 12 GB not tested yet) | **Turbo** (fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 15 GB | 11 s |
+
+Times were measured on a 12 GB card with the [12 GB settings](#gpu-memory). Each download includes 2.2 GB of
+files that every choice needs (vision, VAE, background removal, watermark removal, upscaler). Turbo is the
+official Qwen-Image-2.1-Turbo, not the uncensored build: it is much faster, but weaker at small text and at
+following long prompts.
+
+<a href="docs/images/model-comparison.webp"><img src="docs/images/model-comparison.webp" width="100%" alt="The same watch movement with the engraved text SWISS MADE, made with each model and text encoder"></a><br>
+<b>Same prompt and seed with each combination</b> (click to see full size). The uncensored model with the Q8_0
+text encoder gave the best quality. On a 12 GB card, the larger Turbo files (Q5_K_M, Q6_K) were slower than
+Q4_K_M because they do not fit as well.
+
+To pick another combination, set `model.variant`, `model.quant` and `model.text_encoder_quant` in
+`config.yaml` (sizes are listed in [`config.example.yaml`](config.example.yaml)), then run the start script again
+and let it restart the server.
 
 ## Connect an MCP client
 
@@ -268,12 +306,12 @@ made, or an image uploaded on the server's web page (`http://<host>:5005/upload`
 ## Configuration
 
 All settings are in `config.yaml` (created from the commented [`config.example.yaml`](config.example.yaml)).
-Restart after a change: `docker compose restart`. The most useful ones:
+After a change, run the start script again and let it restart the server. The most useful ones:
 
 | Setting | Default | What it does |
 |---|---|---|
 | `device` | `gpu` | `gpu` or `cpu` |
-| `model.quant` | `Q4_K_M` | Model size: `Q4_K_M` (4.6 GB), `Q6_K` (5.9 GB) or `Q8_0` (7.6 GB) |
+| `model.variant`, `model.quant`, `model.text_encoder_quant` | `uncensored`, `Q4_K_M`, `Q4_K_M` | The model: see [Choosing a model](#choosing-a-model). The start menu changes these |
 | `generation.steps` | 40 | Quality vs. speed. 25 is a faster draft |
 | `generation.default_size` | 1024x1024 | Size when a request gives none |
 | `generation.panorama_size` | 2048x1024 | Default panorama size (2880x1440 at most) |
@@ -307,13 +345,14 @@ On a shared computer, only the GPUs you list are used. For cards with less memor
 
 - **No GPU found**: run the `nvidia-smi` check from [Requirements](#requirements). On Linux, install the NVIDIA
   Container Toolkit. Or use `device: cpu`.
-- **Out of GPU memory**: use the [12 GB settings](#gpu-memory), a smaller size, or move the text encoder to
-  another GPU.
+- **Out of GPU memory**: use the [12 GB settings](#gpu-memory), a smaller size, a smaller model (see
+  [Choosing a model](#choosing-a-model)), or move the text encoder to another GPU.
 - **The client times out**: add `?max_wait=N` to the endpoint URL (or lower `generation.wait_seconds`) with N below the client's tool time limit.
 - **Other computers cannot connect**: use this computer's IP address instead of `localhost`, allow port 5005
   in the firewall, and set `server.public_url` so image links work.
-- **CPU mode is very slow or crashes on Windows**: Docker Desktop gives WSL only half your RAM. Raise it in
-  `%UserProfile%\.wslconfig` (`[wsl2]` then `memory=24GB`), run `wsl --shutdown` and restart Docker Desktop.
+- **CPU mode or the Q8_0 text encoder is very slow or crashes on Windows**: Docker Desktop gives WSL only half
+  your RAM. Raise it in `%UserProfile%\.wslconfig` (`[wsl2]` then `memory=24GB`), run `wsl --shutdown` and
+  restart Docker Desktop.
 - **The server shows an error**: read `docker compose logs --tail 100`, fix the cause, and run the start
   script again.
 
