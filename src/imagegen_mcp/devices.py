@@ -50,6 +50,8 @@ def physical_cpu_threads() -> int:
                     phys = core = None
         if cores:
             return len(cores)
+        # No core ids: arm64 (Apple Silicon, Graviton) lists each core once and has no SMT siblings to skip.
+        return len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
     except OSError:
         pass
     return max(1, (os.cpu_count() or 2) // 2)

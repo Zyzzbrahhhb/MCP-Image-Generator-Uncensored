@@ -225,3 +225,20 @@ def test_container_gpu_allow_list(monkeypatch):
     assert build_device_plan(Config.model_validate(ok)).env["CUDA_VISIBLE_DEVICES"] == "GPU-ccc"
     with pytest.raises(ValueError, match="limited to"):
         build_device_plan(Config.model_validate({"gpu": {"diffusion": [2], "text_encoder": 1, "vae": 2}}))
+
+
+def test_physical_cores_on_arm64_and_x86(monkeypatch):
+    import builtins
+    import io
+    import os
+
+    from imagegen_mcp import devices
+
+    real_open = builtins.open
+    arm = "processor\t: 0\nBogoMIPS\t: 48.00\n\nprocessor\t: 1\nBogoMIPS\t: 48.00\n\n"  # no core ids, no SMT
+    x86 = "".join(f"processor\t: {i}\nphysical id\t: 0\ncore id\t\t: {i // 2}\n\n" for i in range(8))  # 4 cores x 2
+    for text, expected in ((arm, 18), (x86, 4)):
+        monkeypatch.setattr(builtins, "open", lambda p, *a, t=text, **k: io.StringIO(t) if p == "/proc/cpuinfo"
+                            else real_open(p, *a, **k))
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: set(range(18)), raising=False)
+        assert devices.physical_cpu_threads() == expected
