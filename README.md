@@ -143,6 +143,9 @@ generation:
 
 ## Quick start
 
+New to Docker or MCP? [Getting started](docs/getting-started.md) shows each step of the setup, each choice and
+what the screens mean.
+
 1. Install Docker (see [Requirements](#requirements)) and start it. On Windows, open Docker Desktop and wait
    until it shows that it is running.
 2. Download this project with [Git](https://git-scm.com/downloads):
@@ -158,7 +161,8 @@ generation:
    - **Linux**: run `./start.sh`
 4. The first start runs the setup: it asks which GPU and which model to use (see
    [Choosing a model](#choosing-a-model)) and sets the GPU memory settings for you. If you are not sure, press
-   Enter to take the recommended choice.
+   Enter to take the recommended choice. [Getting started](docs/getting-started.md#the-first-start) explains
+   each choice.
 5. Wait. The first start builds the Docker image (10-30 minutes) and downloads 11-16 GB of models into the
    `models` folder. When it is ready, the script prints the address:
 
@@ -173,6 +177,7 @@ generation:
   the defaults, so Enter keeps them.
 - **Update**: run `update.cmd` or `./update.sh`. Your settings and model files are kept.
 - **Stop**: `stop.cmd` or `./stop.sh`. **Logs**: `docker compose logs -f`.
+- **A message you do not understand**: see [When something goes wrong](docs/getting-started.md#messages).
 - **Web page**: open `http://localhost:5005/` to see the status, upload images and browse recent results.
 - **Model files** are saved in the `models` folder. After you change the model, the old files stay there:
   delete the ones you no longer use to free disk space.
@@ -329,7 +334,8 @@ After a change, run the start script again and let it restart the server. The mo
 ## Choosing GPUs
 
 GPU numbers are the ones `nvidia-smi` shows. Everything runs on GPU 0 by default. The model has three parts,
-and each can go on a different GPU:
+and each can go on a different GPU. The setup can do this for you: choose `Custom load (multi-GPU and CPU)`
+(see [Getting started](docs/getting-started.md#custom-load)). By hand, in `config.yaml`:
 
 ```yaml
 gpu:
@@ -353,8 +359,11 @@ On a shared computer, only the GPUs you list are used. For cards with less memor
 - **CPU mode or the Q8_0 text encoder is very slow or crashes on Windows**: Docker Desktop gives WSL only half
   your RAM. Raise it in `%UserProfile%\.wslconfig` (`[wsl2]` then `memory=24GB`), run `wsl --shutdown` and
   restart Docker Desktop.
+- **Images fail with "lost the connection to the inference engine"**: the engine stopped, usually because it ran
+  out of memory. Give Docker more memory (see the Windows item above) or choose a smaller model.
 - **The server shows an error**: read `docker compose logs --tail 100`, fix the cause, and run the start
-  script again.
+  script again. [Getting started](docs/getting-started.md#messages) lists the messages of the
+  scripts and what to do.
 
 ## Development
 
