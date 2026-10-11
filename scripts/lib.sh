@@ -402,7 +402,7 @@ EOF
   else
     echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,"
     echo " slower with less."
-    echo " Times: one 1024x1024 image on an RTX 3080 Ti."
+    echo " Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (GTX 1650: about 10 minutes)."
   fi
   echo " 1 and 2 use the uncensored model. $TURBO uses the official Turbo model: much faster, weaker at small text."
 }
@@ -619,7 +619,7 @@ write_config() {
 # Asks where the server runs and which model it uses and saves the answers in config.yaml. When config.yaml exists,
 # its settings are the defaults, so Enter keeps them.
 run_setup() {
-  local p tmp cur total custom= gpu_default=
+  local p tmp cur total custom= gpu_default= need_gb
   if ! interactive; then
     echo "The setup asks questions, so run $(launcher setup) in a terminal." >&2
     exit 1
@@ -662,15 +662,19 @@ run_setup() {
     elif [ "$VRAM_GB" -lt 8 ]; then
       echo
       echo "Note: with less than 8 GB, the server keeps most of the model in RAM. Use choice $TURBO (Turbo). Each image"
-      echo "takes longer, and Docker needs about 16 GB of memory."
+      echo "takes longer, and Docker needs about 12 GB of memory."
     elif [ "$VRAM_GB" -lt 12 ]; then
       echo
       echo "Note: choice $TURBO (Turbo) fits this GPU best."
     fi
   fi
-  if [ "$DOCKER_GB" -gt 0 ] && [ "$DOCKER_GB" -lt 16 ]; then
+  # On a GPU the engine keeps what does not fit in RAM on disk, so 12 GB is enough (measured: Turbo on a 4 GB GPU used
+  # 6 GB of a 12 GB limit). On the CPU everything is in RAM.
+  need_gb=12
+  if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 4 ]; then need_gb=16; fi
+  if [ "$DOCKER_GB" -gt 0 ] && [ "$DOCKER_GB" -lt "$need_gb" ]; then
     echo
-    echo "Warning: Docker can use only $DOCKER_GB GB of memory, and the server needs about 16 GB. It may stop"
+    echo "Warning: Docker can use only $DOCKER_GB GB of memory, and the server needs about $need_gb GB. It may stop"
     echo "with an out-of-memory error. To give Docker more memory:"
     if [ "$IS_MAC" = 1 ]; then
       echo "Docker Desktop > Settings > Resources > Memory."

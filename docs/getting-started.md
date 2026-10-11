@@ -10,7 +10,7 @@ screens are almost the same.
 |---|---|
 | Docker | **Windows**: [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) (WSL 2). **Linux**: [Docker Engine](https://docs.docker.com/engine/install/) with Compose, `curl`, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for a GPU. |
 | GPU (optional) | NVIDIA RTX 20xx or newer, 4 GB or more (12 GB recommended), driver 570 or newer. Without a GPU, the server uses the CPU: several minutes per image. |
-| Memory | Docker needs 16 GB or more. On Windows, Docker gets half of the RAM, so 32 GB of RAM is recommended. |
+| Memory | Docker needs 12 GB or more (16 GB on the CPU). On Windows, Docker gets half of the RAM, so 32 GB of RAM is recommended. |
 | Disk | 12-16 GB for the models, 6 GB for the server, and space for the first build. |
 
 1. Install [Git](https://git-scm.com/downloads).
@@ -79,13 +79,13 @@ Type a number and press Enter [0]:
 - Choose a GPU that no other program uses. The whole model goes on it. If it does not all fit, the server keeps
   some weights in RAM by itself. On 12 GB the speed stays about the same. On a smaller GPU each image takes longer.
 - The last choice lets you place each part of the model yourself. See [Custom load](#custom-load).
-- A GPU with 4-7 GB runs Turbo with most of the model in RAM. Docker then needs about 16 GB of memory.
+- A GPU with 4-7 GB runs Turbo with most of the model in RAM. Docker then needs about 12 GB of memory.
 - A GPU with less than 4 GB is too small. The script asks again. If it is your only GPU, the script offers the
   CPU.
 - Without an NVIDIA GPU, the script asks `Continue on the CPU (several minutes per image)? [Y/n]`. If you have an
   NVIDIA GPU, type `n`, install its driver, and run `start.cmd` again.
 
-If Docker can use less than 16 GB, the script warns you. See [Give Docker more memory](#give-docker-more-memory).
+If Docker can use less than 12 GB (16 GB on the CPU), the script warns you. See [Give Docker more memory](#give-docker-more-memory).
 
 ### Step 3: The model
 
@@ -107,7 +107,8 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
 - **Download**: what is still missing. The models share files, so a second model downloads less.
 - **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,
   slower with less.
-- **Time per image**: 1024x1024 on an RTX 3080 Ti. An RTX 5090 is about 2 times faster.
+- **Time per image**: 1024x1024 on an RTX 3080 Ti. An RTX 5090 is about 2 times faster. An older GPU is much
+  slower: a GTX 1650 takes about 10 minutes.
 - `<- recommended` is the best choice for your computer. `<- current` is the model that you use now.
 - Best quality with less than 20 GB for Docker: the script asks `Use it anyway? [y/N]`. Type `y` to keep it.
 - A model set by hand in `config.yaml` shows as `Keep the current model`. It is the default.

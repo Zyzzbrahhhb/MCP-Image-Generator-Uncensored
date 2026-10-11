@@ -359,7 +359,7 @@ function Show-Presets([int]$Recommended, [bool]$Cpu, [int]$Current, [string]$Cus
     else {
         Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,'
         Write-Host ' slower with less.'
-        Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti.'
+        Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (GTX 1650: about 10 minutes).'
     }
     Write-Host " 1 and 2 use the uncensored model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
 }
@@ -600,15 +600,18 @@ function Invoke-Setup {
         } elseif ($m.VramGB -lt 8) {
             Write-Host ''
             Write-Host "Note: with less than 8 GB, the server keeps most of the model in RAM. Use choice $TurboChoice (Turbo). Each image" -ForegroundColor Yellow
-            Write-Host 'takes longer, and Docker needs about 16 GB of memory.' -ForegroundColor Yellow
+            Write-Host 'takes longer, and Docker needs about 12 GB of memory.' -ForegroundColor Yellow
         } elseif ($m.VramGB -lt 12) {
             Write-Host ''
             Write-Host "Note: choice $TurboChoice (Turbo) fits this GPU best." -ForegroundColor Yellow
         }
     }
-    if ($m.DockerGB -gt 0 -and $m.DockerGB -lt 16) {
+    # On a GPU the engine keeps what does not fit in RAM on disk, so 12 GB is enough (measured: Turbo on a 4 GB GPU used
+    # 6 GB of a 12 GB limit). On the CPU everything is in RAM.
+    $needGB = if ($m.Mac -or $m.VramGB -lt 4) { 16 } else { 12 }
+    if ($m.DockerGB -gt 0 -and $m.DockerGB -lt $needGB) {
         Write-Host ''
-        Write-Host "Warning: Docker can use only $($m.DockerGB) GB of memory, and the server needs about 16 GB. It may stop" -ForegroundColor Yellow
+        Write-Host "Warning: Docker can use only $($m.DockerGB) GB of memory, and the server needs about $needGB GB. It may stop" -ForegroundColor Yellow
         Write-Host 'with an out-of-memory error. To give Docker more memory:' -ForegroundColor Yellow
         if ($m.Mac) { Write-Host 'Docker Desktop > Settings > Resources > Memory.' -ForegroundColor Yellow }
         else { Write-Host "see 'CPU mode or the Q8_0 text encoder is very slow or crashes on Windows' in README.md." -ForegroundColor Yellow }
