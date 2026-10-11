@@ -3,8 +3,8 @@
 ## Make your own `<insert-image-here>`
 
 A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that makes and edits images with
-**Qwen-Image-2.1** on your own computer. Ask for an image in VS Code, Cursor, LM Studio or any other MCP client on your
-network, and it appears in the chat.
+**Qwen-Image-2.1** on your own computer. Ask for an image in VS Code, Cursor, Claude Code, LM Studio or any other MCP
+client on your network, and it appears in the chat.
 
 > *Your GPU, your images. No cloud, no account, no content filter.*
 
@@ -31,8 +31,8 @@ network, and it appears in the chat.
 
 ## Gallery
 
-The Non-Turbo model made these images with its default quality settings, except the restoration example and the image
-to SVG sources, which Turbo made. The prompts are in the [table below](#prompts-and-settings).
+The Non-Turbo model made these images with its default quality settings. Turbo made the restoration example, the love
+letter, the menu and the image to SVG sources. The prompts are in the [table below](#prompts-and-settings).
 
 #### Make your own `Text to image`
 
@@ -64,7 +64,7 @@ is made up, damage included.
 
 <table>
 <tr>
-<td width="33%"><img src="docs/images/restore-before.webp" alt="A badly damaged old black and white photo of a couple in front of a farmhouse: torn pieces, deep cracks, water stains and mold"><br>Before</td>
+<td width="33%"><img src="docs/images/restore-before.webp" alt="A badly damaged old black and white photo of a couple: the faces cracked, stained and peeling, with torn corners and mold"><br>Before</td>
 <td width="33%"><img src="docs/images/restore-after.webp" alt="The same photo restored: clean, sharp, black and white"><br>Restored</td>
 <td width="33%"><img src="docs/images/restore-color.webp" alt="The same photo restored and colorized"><br>Restored and colorized</td>
 </tr>
@@ -74,7 +74,13 @@ is made up, damage included.
 
 Text in quotes in the prompt is written as given.
 
-<img src="docs/images/text-rendering.webp" width="45%" alt="A vintage travel poster that reads SEE THE ALPS">
+<table>
+<tr>
+<td width="33%"><img src="docs/images/text-rendering.webp" alt="A vintage travel poster that reads SEE THE ALPS"></td>
+<td width="33%"><img src="docs/images/text-letter.webp" alt="A close-up of a handwritten love letter: My dearest Clara, I count the hours until I see you again. Forever yours, Thomas"></td>
+<td width="33%"><img src="docs/images/text-menu.webp" alt="A cafe chalkboard menu: Today's menu, Espresso 2.50, Cappuccino 3.75, Croissant 3.00, Apple pie 4.25"></td>
+</tr>
+</table>
 
 #### Make your own `Transparent PNG`
 
@@ -170,6 +176,8 @@ Lettering, 3x</td>
 | Text to image | `generate_image`, 1344x768, seed 20261006 | A lighthouse on a rocky coast at sunset, waves breaking on the rocks, warm golden light, a small fishing boat in the distance, dramatic clouds, photorealistic |
 | Edit | `edit_image` with the image above, seed 7 | Make it a snowy winter night with the lighthouse beam switched on and snow on the rocks, keep everything else unchanged |
 | Text in images | `generate_image`, 768x1024, seed 31 | A vintage travel poster, flat screen-print illustration of snowy mountains above a lake with a red train on a bridge, bold title text at the top that reads "SEE THE ALPS", smaller text at the bottom that reads "By rail, every season" |
+| Love letter | `generate_image` with the Turbo model, 864x1152, seed 19 | A close-up photo of a handwritten love letter on cream paper, elegant flowing cursive in dark blue ink that reads "My dearest Clara," then "I count the hours until I see you again." then "Forever yours, Thomas", a dried red rose lying on the corner of the page, soft warm window light, shallow depth of field, photorealistic |
+| Chalkboard menu | `generate_image` with the Turbo model, 864x1152, seed 8 | A cafe chalkboard menu hanging on a brick wall, neat hand-lettered white chalk with small colored chalk drawings of a coffee cup and leaves, the title reads "TODAY'S MENU", below it four lines that read "Espresso 2.50", "Cappuccino 3.75", "Croissant 3.00" and "Apple pie 4.25", photorealistic |
 | Uncensored | `generate_image`, 768x1024, seed 505 | Iron Man in his red and gold armor standing on a rooftop at night, city lights below, cinematic lighting, photorealistic |
 | Icon | `generate_image`, 1024x1024, `transparent: true`, seed 404 | A cute cartoon rocket ship, flat vector illustration, bold outlines, bright colors |
 | Transparent | `generate_image`, 1024x1024, `transparent: true`, seed 11 | A red fox sitting, full body, soft studio light |
@@ -182,7 +190,7 @@ Lettering, 3x</td>
 | Normal map | `edit_image` with the stone tile, seed 2 | Convert `<image1>` into a normal map for a game material, keep the exact layout of every stone |
 | Watermark removal | `remove_watermark`, seed 9, on the text-to-image result with a tiled "SAMPLE" text and a corner badge added | - (no prompt needed) |
 | Upscaling | `upscale_image`, `scale: 4` on the text-to-image result | - |
-| Old photo (for the restoration) | `generate_image` with the Turbo model, 896x1152, seed 3 | A severely damaged old black and white photograph from the 1940s: a young couple standing in front of a wooden farmhouse porch, the woman in a floral dress, the man in a hat and suspenders. Heavy damage: large torn and missing pieces at the corners and edges, deep cracks running across the whole print and over the people, peeling emulsion, big brown water stains, mold spots, heavy fading and scratches everywhere, scanned photo |
+| Old photo (for the restoration) | `generate_image` with the Turbo model, 896x1152, seed 27 | A severely damaged old black and white photograph from the 1940s: a young couple standing in front of a wooden farmhouse porch, the woman in a floral dress, the man in a hat and suspenders, framed from the knees up so their faces are large. Heavy damage over their faces: a deep crack runs straight across both faces, a brown water stain covers half of the woman's face, the emulsion has peeled off one side of the man's face and hat, scratches and dust over their eyes. Also torn missing corners, mold spots and heavy fading, scanned photo |
 | Restored | `edit_image` with the old photo, Turbo model, seed 5 | Restore this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, fix the faded contrast, keep it black and white. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
 | Restored and colorized | `edit_image` with the old photo, Turbo model, seed 5 | Restore and colorize this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, and add natural realistic colors. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
 | Image to SVG | `vectorize_image` on the pelican, the icon, the mascot, the rose and the logo | - |
@@ -399,6 +407,12 @@ The endpoint is `http://<host>:5005/mcp` (Streamable HTTP).
 
 ```json
 { "mcpServers": { "imagegen": { "url": "http://localhost:5005/mcp" } } }
+```
+
+**Claude Code**: run this once in a terminal:
+
+```bash
+claude mcp add --transport http imagegen http://localhost:5005/mcp
 ```
 
 **Clients that only support stdio** can connect through [mcp-remote](https://www.npmjs.com/package/mcp-remote):
