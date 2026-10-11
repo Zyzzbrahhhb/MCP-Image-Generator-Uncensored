@@ -273,9 +273,9 @@ function Get-GpuFit($m, [int]$GB) {
     $cap = if ($GB -lt 20) { $GB - 2 } else { $GB }
     if ($GB -lt 4) { return 'too small' }
     if ($GB -lt 8) { return 'Turbo, slower' }
-    if ($GB -lt 12) { return 'Turbo' }
-    $p = if ($m.DockerGB -eq 0 -or $m.DockerGB -ge 20) { $Presets[0] } else { $Presets[1] }
-    if ((Get-GpuNeed $p) -le $cap) { "$($p.Name), all on the GPU" } else { "$($p.Name), some weights in RAM" }
+    # From 20 GB even Best quality (about 18 GB) fits on the GPU.
+    if ((Get-GpuNeed $Presets[0]) -le $cap) { return 'any model, all on the GPU' }
+    'Turbo'
 }
 function Select-Gpu($m, [string]$Default) {
     if ($m.GpuCount -eq 1) {
@@ -316,9 +316,9 @@ function Confirm-Cpu([string]$Reason, $m) {
 # --- step 3: the model ----------------------------------------------------------------------------------------------
 # Device and recommended choice for the GPU memory in VramGB (the total when the model is split).
 function Get-Recommendation($m) {
-    if ($m.Mac -or $m.VramGB -lt 4) { return @{ Device = 'cpu'; Preset = $TurboChoice } }
-    $preset = if ($m.VramGB -lt 12) { $TurboChoice } elseif ($m.DockerGB -ge 20) { 1 } else { 2 }
-    @{ Device = 'gpu'; Preset = $preset }
+    # Turbo everywhere: 7-8 times faster than the uncensored model (choices 1 and 2).
+    $device = if ($m.Mac -or $m.VramGB -lt 4) { 'cpu' } else { 'gpu' }
+    @{ Device = $device; Preset = $TurboChoice }
 }
 # The bytes that a model choice still has to download (files that are missing or not complete).
 function Get-MissingBytes($Preset) {

@@ -59,23 +59,24 @@ One GPU: the script shows it and continues.
 
 ```
     Memory Docker can use: 24 GB
-    GPU: NVIDIA GeForce RTX 3080 Ti, 12 GB (Best quality, some weights in RAM)
+    GPU: NVIDIA GeForce RTX 3080 Ti, 12 GB (Turbo)
 ```
 
 Several GPUs: choose one.
 
 ```
     GPUs found:
-      0) NVIDIA GeForce RTX 5090, 32 GB      Best quality, all on the GPU  <- recommended
+      0) NVIDIA GeForce RTX 5090, 32 GB      any model, all on the GPU  <- recommended
       1) NVIDIA GeForce RTX 3080, 10 GB      Turbo
-      2) NVIDIA GeForce RTX 3080 Ti, 12 GB   Best quality, some weights in RAM
+      2) NVIDIA GeForce RTX 3080 Ti, 12 GB   Turbo
       3) Custom load (multi-GPU and CPU)
 
 Which GPU should the image server use?
 Type a number and press Enter [0]:
 ```
 
-- Next to each GPU: the model that it suits best. The script recommends the GPU with the most memory.
+- Next to each GPU: `Turbo`, or `any model, all on the GPU` when even Best quality fits (20 GB or more). The
+  script recommends the GPU with the most memory.
 - Choose a GPU that no other program uses. The whole model goes on it. If it does not all fit, the server keeps
   some weights in RAM by itself. With 8 GB or more the speed stays about the same. With 4-7 GB each image takes
   about 2 times longer.
@@ -94,9 +95,9 @@ If Docker can use less than 12 GB (16 GB on the CPU), the script warns you. See 
 Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
 
     Choice          Download     GPU memory   Time per image
- 1) Best quality    13.3 GB      18 GB        ~90 s  <- recommended
+ 1) Best quality    13.3 GB      18 GB        ~90 s
  2) Standard        4.6 GB       14 GB        ~90 s
- 3) Turbo           downloaded   14 GB        ~11 s  <- current
+ 3) Turbo           downloaded   14 GB        ~11 s  <- current, recommended
 ```
 
 | Choice | What you get |
@@ -110,7 +111,7 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
   8 GB or more, slower with less.
 - **Time per image**: 1024x1024 on an RTX 3080 Ti. An RTX 5090 is about 2 times faster. An older GPU is much
   slower: Turbo on a GTX 1650 takes about 10 minutes.
-- `<- recommended` is the best choice for your computer. `<- current` is the model that you use now.
+- `<- recommended` marks Turbo, the fastest choice. `<- current` is the model that you use now.
 - Best quality with less than 20 GB for Docker: the script asks `Use it anyway? [y/N]`. Type `y` to keep it.
 - A model set by hand in `config.yaml` shows as `Keep the current model`. It is the default.
 

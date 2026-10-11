@@ -215,11 +215,9 @@ gpu_fit() {
   if [ "$1" -lt 20 ]; then cap=$(($1 - 2)); fi
   if [ "$1" -lt 4 ]; then echo "too small"; return 0; fi
   if [ "$1" -lt 8 ]; then echo "Turbo, slower"; return 0; fi
-  if [ "$1" -lt 12 ]; then echo "Turbo"; return 0; fi
-  if [ "$DOCKER_GB" -eq 0 ] || [ "$DOCKER_GB" -ge 20 ]; then p=$(preset 1); else p=$(preset 2); fi
-  if [ "$(gpu_need "$p")" -le "$cap" ]; then echo "$(pf "$p" 1), all on the GPU"
-  else echo "$(pf "$p" 1), some weights in RAM"
-  fi
+  # From 20 GB even Best quality (about 18 GB) fits on the GPU.
+  if [ "$(gpu_need "$(preset 1)")" -le "$cap" ]; then echo "any model, all on the GPU"; return 0; fi
+  echo "Turbo"
 }
 # gpu_gb INDEX: the memory of that GPU in GB (empty when there is no such GPU).
 gpu_gb() { printf '%s\n' "$GPU_ROWS" | awk -F'|' -v i="$1" '$1 == i { print $3; exit }'; }
@@ -368,12 +366,9 @@ cpu_ok() {
 # --- step 3: the model ------------------------------------------------------------------------------------------------
 # recommend: sets DEVICE_REC and PRESET_REC.
 recommend() {
-  if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 4 ]; then DEVICE_REC=cpu; PRESET_REC=$TURBO; return 0; fi
-  DEVICE_REC=gpu
-  if [ "$VRAM_GB" -lt 12 ]; then PRESET_REC=$TURBO
-  elif [ "$DOCKER_GB" -ge 20 ]; then PRESET_REC=1
-  else PRESET_REC=2
-  fi
+  # Turbo everywhere: 7-8 times faster than the uncensored model (choices 1 and 2).
+  PRESET_REC=$TURBO
+  if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 4 ]; then DEVICE_REC=cpu; else DEVICE_REC=gpu; fi
 }
 # show_presets RECOMMENDED cpu|gpu CURRENT [CUSTOM]: print the model choices (CURRENT 0 = no current model). With
 # CUSTOM (the text of a model that is none of the choices), a last line offers to keep it.

@@ -27,9 +27,9 @@ and others.
 | Uncensored | No | Yes |
 | Small text | Weak in small images (512x512 and less) | Good |
 
-**Fastest setup: Turbo Q4_K_M with the Q4_K_M text encoder** (choice 3 in the setup). It downloads 11.4 GB. The
-whole model needs about 14 GB of GPU memory. The setup recommends Turbo on a GPU with less than 12 GB. With 12 GB or
-more it recommends the uncensored model: type 3 to get Turbo.
+**Recommended setup: Turbo Q4_K_M with the Q4_K_M text encoder.** The setup recommends it, so Enter picks it. It
+downloads 11.4 GB. The whole model needs about 14 GB of GPU memory. For the uncensored model, choose 1 or 2 in the
+setup.
 
 With less GPU memory, the server keeps more weights in RAM. On the same GPU this costs little time from 8 GB, and
 4-6 GB takes about 2 times longer. An older GPU or a slow PCIe slot is slower again: see [GPU memory](#gpu-memory).
@@ -231,7 +231,7 @@ what the screens mean.
    - **Mac**: double-click `start.command` (CPU only for now, see [Mac](docs/mac.md))
 4. The first start runs the setup. It asks which GPU (when there are several) and which model to use (see
    [Choosing a model](#choosing-a-model)). It sets the GPU memory settings for you. If you are not sure, press
-   Enter to take the recommended choice. With 12 GB or more that is the uncensored model: type 3 for Turbo.
+   Enter to take the recommended choice (Turbo). Choose 1 or 2 for the uncensored model.
    [Getting started](docs/getting-started.md#the-first-start) explains each choice.
 5. Wait. The first start builds the Docker image (10-30 minutes, 16 on a fast PC). Then it downloads 11-16 GB of
    models into the `models` folder (Turbo: 13 minutes on a 1 Gbps line). When it is ready, the script prints the
@@ -280,9 +280,9 @@ change it.
 
 | Your GPU memory | Setup choice | Model + text encoder (file sizes) | Download | RAM used | 1024x1024 image |
 |---|---|---|---|---|---|
-| 12 GB or more | **Best quality** | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
+| 12 GB or more | Best quality | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
 | 12 GB or more | Standard | Uncensored Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 14 GB | 89 s |
-| 4 GB or more | **Turbo** (fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 11 GB | 11 s |
+| 4 GB or more | **Turbo** (recommended: fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 11 GB | 11 s |
 
 Times: one 1024x1024 image on an RTX 3080 Ti 12 GB. Each download includes 2.2 GB of files that every choice
 needs (the text encoder's vision file, the image decoder, background removal, watermark removal, upscaler). Turbo is the
