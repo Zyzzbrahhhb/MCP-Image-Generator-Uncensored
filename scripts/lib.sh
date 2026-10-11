@@ -25,7 +25,7 @@ presets() {
   cat <<'EOF'
 Best quality|uncensored|Q4_K_M|Q8_0|90|20|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q8_0.gguf|8709519456
 Standard|uncensored|Q4_K_M|Q4_K_M|90|16|diffusion_models/qwen-image-2.1-UC-Q4_K_M.gguf|4604558112|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800
-Turbo|turbo|Q4_K_M|Q4_K_M|12|16|diffusion_models/Qwen-Image-2.1-Turbo-AD-Q4_K.gguf|4201694944|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800
+Turbo|turbo|Q4_K_M|Q4_K_M|11|16|diffusion_models/Qwen-Image-2.1-Turbo-AD-Q4_K.gguf|4201694944|text_encoders/Qwen3VL-8B-Instruct-Q4_K_M.gguf|5027784800
 EOF
 }
 # The files that every model choice needs: path|bytes (under models/).

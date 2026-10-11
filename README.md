@@ -1,11 +1,60 @@
 # MCP Image Generator (Uncensored)
 
-A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that creates and edits images
-with the **uncensored Qwen-Image-2.1** model on your own computer. It runs in Docker, on an NVIDIA GPU or on
-the CPU, and any MCP client on your network can use it over Streamable HTTP.
+A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that makes and edits images with
+**Qwen-Image-2.1** on your own computer. Any MCP client on your network can use it: VS Code, Cursor, LM Studio
+and others.
 
-The default model is an uncensored build of Qwen-Image-2.1 with no built-in content filter. A much faster
-Turbo model and the standard model are also available: see [Choosing a model](#choosing-a-model).
+<a href="#examples"><img src="docs/images/showcase.webp" width="100%" alt="Examples made by this server: an edit and a watermark removal (before and after), a poster with text, an uncensored character, a transparent cutout, a 360 panorama, an icon, a seamless tile and its height and normal maps"></a>
+
+- **Easy to run.** Install Docker, then run `start.cmd` (Windows) or `./start.sh` (Linux). Press Enter at each
+  question. The script finds your GPU, picks the model, downloads it and starts the server.
+- **Low VRAM.** It runs on a 4 GB NVIDIA GPU. What does not fit on the GPU stays in RAM. You can also split the model
+  over several GPUs and the CPU. See [GPU memory](#gpu-memory).
+- **Fast.** Turbo makes a 1344x768 photo in 5 s on an RTX 5090 and in 12 s on an RTX 3080 Ti.
+- **Quality.** The uncensored model has no content filter and writes small text well. Turbo is about 7 times faster.
+- **Mac.** For now, Docker on a Mac uses only the CPU. A native version for the Apple GPU is in development: see
+  [Mac](docs/mac.md).
+
+## Turbo or uncensored
+
+<img src="docs/images/turbo-vs-uncensored.webp" width="80%" alt="The same four prompts and seeds on an RTX 5090: Turbo (8 steps, CFG 1) took 4-10 s per image, Non-Turbo (40 steps, CFG 4) took 26-44 s">
+
+| | Turbo | Non-Turbo (uncensored) |
+|---|---|---|
+| Model | Official Qwen-Image-2.1-Turbo, 8 steps, CFG 1 | Uncensored build of Qwen-Image-2.1, 40 steps, CFG 4 |
+| 1344x768 photo, RTX 5090 32 GB | 5.1 s | 36.2 s |
+| 1024x1024 image, RTX 3080 Ti 12 GB | 11.4 s | about 90 s |
+| Uncensored | No | Yes |
+| Small text | Weak in small images (512x512 and less) | Good |
+
+**Fastest setup: Turbo Q4_K_M with the Q4_K_M text encoder** (choice 3 in the setup). It downloads 11.4 GB. The
+whole model needs about 14 GB of GPU memory. The setup recommends Turbo on a GPU with less than 12 GB. With 12 GB or
+more it recommends the uncensored model: type 3 to get Turbo.
+
+With less GPU memory, the server keeps more weights in RAM. On the same GPU this costs little time from 8 GB, and
+4-6 GB takes about 2 times longer. An older GPU or a slow PCIe slot is slower again: see [GPU memory](#gpu-memory).
+
+Turbo, seconds per image:
+
+| Job | RTX 5090 32 GB | RTX 3080 Ti 12 GB |
+|---|---|---|
+| Photo, 1344x768 | 5.1 | 11.5 |
+| Poster, 768x1024 | 3.9 | 9.0 |
+| Transparent, 1024x1024 | 10-13 | 17-19 |
+| Edit, 1344x768 | 10.7 | 18.2 |
+| Watermark removal, 1344x768 | 8.9 | 18.9 |
+| 360 panorama, 2048x1024 | 22 | 46 |
+| Seamless tile, 512x512 | 1.8 | 3.9 |
+| xl, about 4 megapixels | 30-39 | 64-74 |
+| GPU memory used | about 15 GB (edits about 17 GB) | up to 10.1 GB (watermark removal 10.5 GB) |
+
+The 3080 Ti uses the limit that the setup sets: 10 GB. Smaller GPUs: see [GPU memory](#gpu-memory).
+
+**First install**: about 30 minutes on a fast PC with a 1 Gbps line. The build took 16 minutes (10-30 minutes,
+depending on the CPU), and the Turbo download (11.4 GB) took 13 minutes. After that, the server is ready about 35 s
+after a start.
+
+## Features
 
 - **Text to image** in any size or aspect ratio, up to about 4 megapixels (2048x2048)
 - **Image editing**: change, add or remove things, restyle, or combine up to 10 images
@@ -17,7 +66,10 @@ Turbo model and the standard model are also available: see [Choosing a model](#c
 
 ## Examples
 
-All images below were made by this server with the default quality settings. The prompts are listed under the gallery.
+This server made all these images with the default quality settings of the uncensored model.
+
+<details>
+<summary>The examples at full size, with their prompts</summary>
 
 <table>
 <tr>
@@ -49,7 +101,7 @@ All images below were made by this server with the default quality settings. The
 <img src="docs/images/panorama.webp" width="100%" alt="An equirectangular 360 panorama of a mountain meadow"><br>
 <b>360 panorama</b>, opened in the built-in 360 viewer from the link in the result
 
-### Seamless textures
+**Seamless textures**
 
 Each texture below is one tile (top). Repeated 3x3 (bottom), it shows no seams.
 
@@ -73,8 +125,7 @@ repeated 2x2: they all stay seamless.
 <img src="docs/images/upscale-detail.webp" width="100%" alt="A detail enlarged four times: plain resize on the left, AI upscaler on the right"><br>
 <b>Upscaling</b> 4x. Left: plain enlargement. Right: the upscaler.
 
-<details>
-<summary>Prompts and settings</summary>
+**Prompts and settings**
 
 | Image | Tool and settings | Prompt |
 |---|---|---|
@@ -102,8 +153,8 @@ Characters and brands shown belong to their owners.
 
 | | GPU mode | CPU mode |
 |---|---|---|
-| Docker | Docker Desktop (Windows) or Docker Engine with Compose (Linux) | Docker Desktop (Windows) or Docker Engine with Compose (Linux) |
-| Hardware | NVIDIA GPU, RTX 20xx or newer, 12 GB VRAM or more (see [GPU memory](#gpu-memory)), 32 GB RAM recommended | Any modern 64-bit CPU, 24 GB RAM or more |
+| Docker | Docker Desktop (Windows) or Docker Engine with Compose (Linux) | Docker Desktop (Windows, Mac) or Docker Engine with Compose (Linux) |
+| Hardware | NVIDIA GPU, GTX 16xx / RTX 20xx or newer, 4 GB of GPU memory (VRAM) or more (see [GPU memory](#gpu-memory)), 32 GB RAM recommended | Any modern 64-bit CPU, 24 GB RAM or more |
 | Driver | NVIDIA driver 570 or newer | - |
 | Disk | 12-16 GB for models (see [Choosing a model](#choosing-a-model)) and 6 GB for the Docker image | 12-16 GB and 1 GB |
 
@@ -122,24 +173,42 @@ docker run --rm --gpus all nvidia/cuda:12.8.2-base-ubuntu24.04 nvidia-smi
 
 ### GPU memory
 
-Every feature, including 2048x2048 images, edits with 10 input images, 2880x1440 panoramas and upscaling to
-8192 px, works on a single 12 GB card:
+The setup sets everything for your GPU. Choose one GPU and the whole model goes on it. If the model does not fit,
+the server keeps some weights in RAM by itself.
 
-| GPU memory | Settings | Notes |
-|---|---|---|
-| 24 GB or more | default | Everything stays on the GPU, the fastest setup. Peak use is about 18 GB |
-| 12-16 GB | the settings below | Peak use is about 11 GB. The text encoder's weights stay in system RAM, so the server uses up to about 15 GB of RAM |
-| 8-10 GB | Turbo ([Choosing a model](#choosing-a-model)), `max_vram_gb` = GPU memory minus 2 | Not tested. The largest sizes may not fit |
+Turbo, seconds per image, with what the setup sets for each GPU size:
 
-Settings for a 12 GB card, in `config.yaml`:
+| GPU memory | 1344x768 | 1024x1024 | 512x512 | GPU memory used | RAM used by Docker |
+|---|---|---|---|---|---|
+| 4 GB | 22.3 | 22.9 | 6.5 | 2.5 GB | about 10 GB |
+| 6 GB | 21.4 | 21.7 | 4.8 | 4.5 GB | about 10 GB |
+| 8 GB | 11.8 | 12.4 | 3.9 | 5.9 GB | about 10 GB |
+| 10 GB | 11.8 | 12.4 | 3.9 | 5.9 GB | about 10 GB |
+| 12 GB | 11.4 | 11.4 | 3.8 | 9.8 GB | up to 11 GB |
+| GTX 1650 4 GB (old PC) | 618 | 632 | 110 | 2.2 GB | 6.2 GB |
 
-```yaml
-gpu:
-  max_vram_gb: {0: 10}
-  offload: {text_encoder: cpu}
-generation:
-  prefix_cache_type: q8_0
-```
+All rows except the GTX 1650 come from one RTX 3080 Ti. For each row, the server had the memory limit that the
+setup sets for that GPU size. So the rows show the cost of less memory, not of a slower GPU.
+
+A real small GPU is also slower. See the GTX 1650 row: an old PC with 16 GB of DDR3 RAM, PCIe 2.0 and a hard disk.
+Docker had 12 GB, so the server read the text encoder from the disk. A GPU that keeps weights in RAM also needs a
+fast PCIe slot: in a PCIe x1 slot, each image took 5-7 s longer.
+
+An earlier test on a 12 GB GPU with the uncensored model and the text encoder in RAM ran every feature, including
+2048x2048 images, edits with 10 input images, 2880x1440 panoramas and upscaling to 8192 px.
+
+### Split the model over GPUs and the CPU
+
+The model has three parts. Each part can run on a different GPU, or on the CPU. With two or more GPUs, choose
+`Custom load (multi-GPU and CPU)` in the setup (see [Custom load](docs/getting-started.md#custom-load)). With one
+GPU, set the parts in `config.yaml` (see [Choosing GPUs](#choosing-gpus)).
+
+<img src="docs/images/split-diagram.webp" width="100%" alt="The image model on GPU 0, the text encoder on GPU 1 and the image decoder on the CPU, all connected to the server, which makes the image">
+
+- On a GPU with 12-19 GB, the setup recommends the text encoder's weights in RAM. Its weights (5.0 GB, or 8.7 GB
+  with the Q8_0 file) then stay out of GPU memory.
+  On a GPU with 8-11 GB it was slower (19.4 s against 11.8 s at 1344x768), so the setup does not recommend it there.
+- The image decoder on the CPU makes each image much slower. Use it only when no GPU has room.
 
 ## Quick start
 
@@ -159,12 +228,14 @@ what the screens mean.
 3. Run the start script from that folder:
    - **Windows**: double-click `start.cmd`
    - **Linux**: run `./start.sh`
-4. The first start runs the setup: it asks which GPU and which model to use (see
-   [Choosing a model](#choosing-a-model)) and sets the GPU memory settings for you. If you are not sure, press
-   Enter to take the recommended choice. [Getting started](docs/getting-started.md#the-first-start) explains
-   each choice.
-5. Wait. The first start builds the Docker image (10-30 minutes) and downloads 11-16 GB of models into the
-   `models` folder. When it is ready, the script prints the address:
+   - **Mac**: double-click `start.command` (CPU only for now, see [Mac](docs/mac.md))
+4. The first start runs the setup. It asks which GPU (when there are several) and which model to use (see
+   [Choosing a model](#choosing-a-model)). It sets the GPU memory settings for you. If you are not sure, press
+   Enter to take the recommended choice. With 12 GB or more that is the uncensored model: type 3 for Turbo.
+   [Getting started](docs/getting-started.md#the-first-start) explains each choice.
+5. Wait. The first start builds the Docker image (10-30 minutes, 16 on a fast PC). Then it downloads 11-16 GB of
+   models into the `models` folder (Turbo: 13 minutes on a 1 Gbps line). When it is ready, the script prints the
+   address:
 
    ```
    Ready. Add this address to your AI app as an MCP server:
@@ -209,12 +280,12 @@ change it.
 
 | Your GPU memory | Setup choice | Model + text encoder (file sizes) | Download | RAM used | 1024x1024 image |
 |---|---|---|---|---|---|
-| 12 GB or more | **Best quality** | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB | 89 s |
-| 12 GB or more | Standard | Uncensored Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 15 GB | 89 s |
-| 8 GB or more (below 12 GB not tested yet) | **Turbo** (fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 15 GB | 11 s |
+| 12 GB or more | **Best quality** | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
+| 12 GB or more | Standard | Uncensored Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 14 GB | 89 s |
+| 4 GB or more | **Turbo** (fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 11 GB | 11 s |
 
-Times were measured on a 12 GB card with the [12 GB settings](#gpu-memory). Each download includes 2.2 GB of
-files that every choice needs (vision, VAE, background removal, watermark removal, upscaler). Turbo is the
+Times: one 1024x1024 image on an RTX 3080 Ti 12 GB. Each download includes 2.2 GB of files that every choice
+needs (the text encoder's vision file, the image decoder, background removal, watermark removal, upscaler). Turbo is the
 official Qwen-Image-2.1-Turbo, not the uncensored build: it is much faster, but weaker at small text and at
 following long prompts.
 
@@ -224,8 +295,8 @@ text encoder gave the best quality. On a 12 GB card, the larger Turbo files (Q5_
 Q4_K_M because they do not fit as well.
 
 To pick another combination, set `model.variant`, `model.quant` and `model.text_encoder_quant` in
-`config.yaml` (sizes are listed in [`config.example.yaml`](config.example.yaml)), then run the start script again
-and let it restart the server.
+`config.yaml`. [`config.example.yaml`](config.example.yaml) lists the sizes. Then run the start script again and
+let it restart the server.
 
 ## Connect an MCP client
 
@@ -317,7 +388,7 @@ After a change, run the start script again and let it restart the server. The mo
 |---|---|---|
 | `device` | `gpu` | `gpu` or `cpu` |
 | `model.variant`, `model.quant`, `model.text_encoder_quant` | `uncensored`, `Q4_K_M`, `Q4_K_M` | The model: see [Choosing a model](#choosing-a-model). `setup.cmd` (Windows) or `./setup.sh` (Linux) changes these |
-| `generation.steps` | 40 | Quality vs. speed. 25 is a faster draft |
+| `generation.steps` | 40 | Steps of the uncensored model: quality vs. speed. 25 is a faster draft. Turbo always uses 8 |
 | `generation.default_size` | 1024x1024 | Size when a request gives none |
 | `generation.panorama_size` | 2048x1024 | Default panorama size (2880x1440 at most) |
 | `generation.wait_seconds` | 25 | How long a tool call (and each `get_job`) waits before returning a `job_id` (at most 280) |
@@ -339,9 +410,9 @@ and each can go on a different GPU. The setup can do this for you: choose `Custo
 
 ```yaml
 gpu:
-  diffusion: [0]     # the main model, runs every step: use the fastest GPU
+  diffusion: [0]     # the image model: runs every step, use the fastest GPU
   text_encoder: 1    # reads the prompt once per request
-  vae: 0             # turns the result into pixels
+  vae: 0             # the image decoder: turns the result into pixels
 ```
 
 On a shared computer, only the GPUs you list are used. For cards with less memory, see
@@ -351,8 +422,8 @@ On a shared computer, only the GPUs you list are used. For cards with less memor
 
 - **No GPU found**: run the `nvidia-smi` check from [Requirements](#requirements). On Linux, install the NVIDIA
   Container Toolkit. Or use `device: cpu`.
-- **Out of GPU memory**: use the [12 GB settings](#gpu-memory), a smaller size, a smaller model (see
-  [Choosing a model](#choosing-a-model)), or move the text encoder to another GPU.
+- **Out of GPU memory**: run the setup again and choose Turbo, use a smaller size, or move a part of the model to
+  another GPU (see [Split the model over GPUs and the CPU](#split-the-model-over-gpus-and-the-cpu)).
 - **The client times out**: add `?max_wait=N` to the endpoint URL (or lower `generation.wait_seconds`) with N below the client's tool time limit.
 - **Other computers cannot connect**: use this computer's IP address instead of `localhost`, allow port 5005
   in the firewall, and set `server.public_url` so image links work.
@@ -389,7 +460,8 @@ model files are downloaded from their original sources and keep their own licens
 | Part | By | License |
 |---|---|---|
 | [Qwen-Image-2.1](https://huggingface.co/Qwen) image model | Qwen team, Alibaba | Qwen Research License (**non-commercial**) |
-| [Uncensored Qwen-Image-2.1 GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) (the default model files) | abenzerps | Qwen Research License (**non-commercial**) |
+| [Uncensored Qwen-Image-2.1 GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) (the uncensored model files) | abenzerps | Qwen Research License (**non-commercial**) |
+| [Qwen-Image-2.1-Turbo GGUF](https://huggingface.co/AtomicChat/Qwen-Image-2.1-Turbo-GGUF) (the Turbo model files) | AtomicChat | Qwen Research License (**non-commercial**) |
 | [Texture-fix VAE](https://huggingface.co/madebyollin/texture-fix-vae-for-qwen-image-2.1) (image decoder) | madebyollin | Qwen Research License (**non-commercial**) |
 | [Qwen3-VL-8B-Instruct GGUF](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF) (prompt and image encoder) | Qwen team, Alibaba | Apache-2.0 |
 | [Watermark removal LoRA](https://civitai.com/models/2969142?modelVersionId=3364468) (v1.0 for Qwen 2.1) | saladin | Civitai license: **no commercial use** |

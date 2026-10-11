@@ -9,7 +9,7 @@ screens are almost the same.
 | You need | Details |
 |---|---|
 | Docker | **Windows**: [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) (WSL 2). **Linux**: [Docker Engine](https://docs.docker.com/engine/install/) with Compose, `curl`, and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for a GPU. |
-| GPU (optional) | NVIDIA RTX 20xx or newer, 4 GB or more (12 GB recommended), driver 570 or newer. Without a GPU, the server uses the CPU: several minutes per image. |
+| GPU (optional) | NVIDIA GTX 16xx / RTX 20xx or newer, 4 GB or more (12 GB recommended), driver 570 or newer. Without a GPU, the server uses the CPU: several minutes per image. |
 | Memory | Docker needs 12 GB or more (16 GB on the CPU). On Windows, Docker gets half of the RAM, so 32 GB of RAM is recommended. |
 | Disk | 12-16 GB for the models, 6 GB for the server, and space for the first build. |
 
@@ -75,9 +75,10 @@ Which GPU should the image server use?
 Type a number and press Enter [0]:
 ```
 
-- Next to each GPU: the model that it suits best. The GPU with the most memory is recommended.
+- Next to each GPU: the model that it suits best. The script recommends the GPU with the most memory.
 - Choose a GPU that no other program uses. The whole model goes on it. If it does not all fit, the server keeps
-  some weights in RAM by itself. On 12 GB the speed stays about the same. On a smaller GPU each image takes longer.
+  some weights in RAM by itself. With 8 GB or more the speed stays about the same. With 4-7 GB each image takes
+  about 2 times longer.
 - The last choice lets you place each part of the model yourself. See [Custom load](#custom-load).
 - A GPU with 4-7 GB runs Turbo with most of the model in RAM. Docker then needs about 12 GB of memory.
 - A GPU with less than 4 GB is too small. The script asks again. If it is your only GPU, the script offers the
@@ -95,7 +96,7 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
     Choice          Download     GPU memory   Time per image
  1) Best quality    13.3 GB      18 GB        ~90 s  <- recommended
  2) Standard        4.6 GB       14 GB        ~90 s
- 3) Turbo           downloaded   14 GB        ~12 s  <- current
+ 3) Turbo           downloaded   14 GB        ~11 s  <- current
 ```
 
 | Choice | What you get |
@@ -105,10 +106,10 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
 | Turbo | Official Turbo model, not uncensored. About 8 times faster. Weaker at small text. |
 
 - **Download**: what is still missing. The models share files, so a second model downloads less.
-- **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,
-  slower with less.
+- **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM: about the same speed on
+  8 GB or more, slower with less.
 - **Time per image**: 1024x1024 on an RTX 3080 Ti. An RTX 5090 is about 2 times faster. An older GPU is much
-  slower: a GTX 1650 takes about 10 minutes.
+  slower: Turbo on a GTX 1650 takes about 10 minutes.
 - `<- recommended` is the best choice for your computer. `<- current` is the model that you use now.
 - Best quality with less than 20 GB for Docker: the script asks `Use it anyway? [y/N]`. Type `y` to keep it.
 - A model set by hand in `config.yaml` shows as `Keep the current model`. It is the default.
@@ -128,7 +129,7 @@ Only after `Custom load (multi-GPU and CPU)`. The model has three parts. You cho
 | Part | What it does | Put it on |
 |---|---|---|
 | Image model | Makes the image. Most of the work. | The fastest GPU, or several GPUs. |
-| Text encoder | Reads the prompt and the input images. | **RAM** (recommended for a GPU with 8-19 GB): the weights stay in RAM, it runs on the image model's GPU. Saves 5-9 GB of GPU memory. It needs 8 GB or more on that GPU. Or a GPU. On the CPU, edits take much longer. |
+| Text encoder | Reads the prompt and the input images. | **RAM** (recommended for a GPU with 12-19 GB): the weights stay in RAM and the text encoder runs on the image model's GPU. Its weights (5.0 GB, or 8.7 GB with Q8_0) then stay out of GPU memory. That GPU needs 8 GB or more. On 8-11 GB, RAM was slower than the GPU (19 s against 12 s at 1344x768). You can also choose a GPU or the CPU. On the CPU, edits take much longer. |
 | Image decoder | Turns the result into pixels. The upscaler also runs here. | A GPU. On the CPU, each image and each upscale takes longer. |
 
 The script asks for each part, then shows your choice:
@@ -146,7 +147,7 @@ Your custom load:
 If a GPU may not have enough memory for its parts, the script warns you before `1) Confirm`:
 
 ```
-    GPU 1 (NVIDIA GeForce RTX 3080, 10 GB) may run out of memory: its parts need about 10 GB.
+    GPU 1 (NVIDIA GeForce RTX 3080, 10 GB) may run out of memory: its parts need about 9 GB.
     The server then works more slowly (it moves parts to RAM) or stops with an out-of-memory error.
 ```
 
@@ -154,12 +155,13 @@ If a GPU may not have enough memory for its parts, the script warns you before `
 
 ```
 ==> Saved in config.yaml: Best quality (uncensored Q4_K_M, text encoder Q8_0)
-    and the GPU settings: GPU 0 (limited to 10 GB); text encoder weights in RAM.
+    and the GPU settings: GPU 2 (limited to 10 GB), text encoder in RAM.
 ```
 
 - **Limited to 10 GB**: on a GPU with less than 20 GB, the server plans for 2 GB less than the GPU has. The rest is
-  for the screen and other programs. A GPU with 9-11 GB gets 6 GB: the server then keeps the weights in RAM, and the
-  image decoder has room. This is faster.
+  for the screen and other programs. A GPU with 9-11 GB that runs every part of the model gets 6 GB. The server then
+  keeps the weights in RAM, and the image decoder has room. In a fast PCIe slot, Turbo on a 10 GB GPU took about
+  12 s at 1344x768 with 6 GB, against about 19 s with 8 GB.
 - **Text encoder in RAM**: only when you chose it in the custom load.
 
 The setup changes only the device, the GPU settings, the model and `generation.prefix_cache_type`. Your other
@@ -172,7 +174,7 @@ settings in `config.yaml` stay.
 ==> Starting the server...
 ==> Downloading the model files (first time only, or after changing the model): 15.37 GB
     6.15 of 15.37 GB (40%)
-==> Loading the model on GPU 0 (NVIDIA GeForce RTX 3080 Ti, 12 GB)...
+==> Loading the model on GPU 2 (NVIDIA GeForce RTX 3080 Ti, 12 GB)...
 
 Ready. Add this address to your AI app as an MCP server:
     http://localhost:5005/mcp
@@ -181,7 +183,8 @@ Status page: http://localhost:5005 (open it in a browser)
 
 - If the build or the download stops, run `start.cmd` again. Both continue where they stopped.
 - Loading can take several minutes on the first start, or on a GPU with little memory. After one minute, the
-  script shows `still loading: 1 min`, `2 min` and so on. On a GTX 1650 (4 GB), the first start took 6.5 minutes.
+  script shows `still loading: 1 min`, `2 min` and so on. On a GTX 1650 (4 GB), with the models already downloaded, the first start took 6.4 minutes: 2.6 minutes to
+  check the model files on a hard disk, then 3.8 minutes to load.
 - Add the address to your AI app (your MCP client). See [Connect an MCP client](../README.md#connect-an-mcp-client).
 - The server runs in Docker, not in the window. You can close the window. Docker starts the server again after
   a restart of the computer, until you run `stop.cmd`.
@@ -236,7 +239,8 @@ Full log: open a terminal in the project folder and run `docker compose logs --t
 
   Use about 8 GB less than your RAM (24GB for 32 GB of RAM). Select **File > Save as**, set **Save as type** to
   **All files**, and save as `%UserProfile%\.wslconfig`. If the file exists, add only the `memory=` line under
-  `[wsl2]`. Then run `wsl --shutdown` and start Docker Desktop again.
+  `[wsl2]`. With 16 GB of RAM, use `memory=12GB` and close other programs (tested with a GTX 1650). Then run
+  `wsl --shutdown` and start Docker Desktop again. If Docker Desktop does not start, restart the computer.
 - **Linux**: Docker can use all of the RAM. Close other programs.
 
 ## Where your files are
