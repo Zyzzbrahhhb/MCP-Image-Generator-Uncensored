@@ -357,9 +357,9 @@ function Show-Presets([int]$Recommended, [bool]$Cpu, [int]$Current, [string]$Cus
     Write-Host ''
     if ($Cpu) { Write-Host ' Memory: what Docker needs. On the CPU, each image takes several minutes.' }
     else {
-        Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,'
-        Write-Host ' slower with less.'
-        Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (GTX 1650: about 10 minutes).'
+        Write-Host ' GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: about the same speed on 8 GB'
+        Write-Host ' or more, slower with less.'
+        Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (Turbo on a GTX 1650: about 10 min).'
     }
     Write-Host " 1 and 2 use the uncensored model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
 }
@@ -382,7 +382,7 @@ function Get-EncoderGB($Preset) {
 }
 $DecoderGB = '0.7'
 # The menu number for a saved place. Kind: image, te or dec. Host: the first GPU of the image model. Without a valid
-# saved place: the first GPU for the image model; RAM for the text encoder on a GPU under 20 GB (else that GPU); the
+# saved place: the first GPU for the image model; RAM for the text encoder on a GPU with 12-19 GB (else that GPU); the
 # image model's GPU for the image decoder. RAM needs 8 GB or more on the host GPU.
 function Get-PartDefault($m, [string]$Place, [string]$Kind, [string]$HostGpu = '') {
     $n = $m.GpuCount
@@ -395,7 +395,7 @@ function Get-PartDefault($m, [string]$Place, [string]$Kind, [string]$HostGpu = '
         'image' { return "$($m.Gpus[0].Index)" }
         'te' {
             $gb = (Get-Gpu $m ([int]$HostGpu)).GB
-            if ($gb -ge 8 -and $gb -lt 20) { return "$n" } else { return $HostGpu }
+            if ($gb -ge 12 -and $gb -lt 20) { return "$n" } else { return $HostGpu }
         }
         default { return $HostGpu }
     }
@@ -410,8 +410,9 @@ function Read-Place($m, [string]$Name, [string]$GB, [string]$Kind, [string]$Defa
     switch ($Kind) {
         'image' { Write-Host "  $n) Several GPUs (split it)" }
         'te' {
-            $gb = (Get-Gpu $m ([int]$HostGpu)).GB
-            $rec = if ($gb -lt 8) { "  (needs 8 GB or more on GPU $HostGpu)" } elseif ($gb -lt 20) { '  <- recommended' } else { '' }
+            # Not $gb: PowerShell names ignore case, so it would overwrite the [string]$GB parameter.
+            $hostGb = [int](Get-Gpu $m ([int]$HostGpu)).GB
+            $rec = if ($hostGb -lt 8) { "  (needs 8 GB or more on GPU $HostGpu)" } elseif ($hostGb -ge 12 -and $hostGb -lt 20) { '  <- recommended' } else { '' }
             Write-Host "  $n) RAM: the weights stay in RAM, it runs on GPU $HostGpu$rec"
             Write-Host "  $($n + 1)) CPU: $(Get-CpuName) (slow)"
         }

@@ -400,9 +400,9 @@ EOF
   if [ "$2" = cpu ]; then
     echo " Memory: what Docker needs. On the CPU, each image takes several minutes."
   else
-    echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: the same speed on 12 GB,"
-    echo " slower with less."
-    echo " Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (GTX 1650: about 10 minutes)."
+    echo " GPU memory: the whole model on the GPU. A smaller GPU keeps some weights in RAM: about the same speed on 8 GB"
+    echo " or more, slower with less."
+    echo " Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (Turbo on a GTX 1650: about 10 min)."
   fi
   echo " 1 and 2 use the uncensored model. $TURBO uses the official Turbo model: much faster, weaker at small text."
 }
@@ -428,7 +428,7 @@ encoder_gb() {
 }
 DECODER_GB=0.7
 # part_default PLACE image|te|dec HOST: the menu number for a saved place. HOST is the first GPU of the image model.
-# Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU with 8-19 GB (else
+# Without a valid saved place: the first GPU for the image model; RAM for the text encoder on a GPU with 12-19 GB (else
 # that GPU); the image model's GPU for the image decoder.
 part_default() {
   case "$2:$1" in
@@ -441,7 +441,7 @@ part_default() {
   esac
   case "$2" in
     image) first_gpu ;;
-    te) if [ "$(gpu_gb "$3")" -ge 8 ] && [ "$(gpu_gb "$3")" -lt 20 ]; then echo "$GPU_COUNT"; else echo "$3"; fi ;;
+    te) if [ "$(gpu_gb "$3")" -ge 12 ] && [ "$(gpu_gb "$3")" -lt 20 ]; then echo "$GPU_COUNT"; else echo "$3"; fi ;;
     dec) echo "$3" ;;
   esac
 }
@@ -456,7 +456,7 @@ place_part() {
     image) echo "  $n) Several GPUs (split it)" ;;
     te)
       if [ "$(gpu_gb "$5")" -lt 8 ]; then rec="  (needs 8 GB or more on GPU $5)"
-      elif [ "$(gpu_gb "$5")" -lt 20 ]; then rec="  <- recommended"
+      elif [ "$(gpu_gb "$5")" -ge 12 ] && [ "$(gpu_gb "$5")" -lt 20 ]; then rec="  <- recommended"
       fi
       echo "  $n) RAM: the weights stay in RAM, it runs on GPU $5$rec"
       echo "  $((n + 1))) CPU: $(cpu_name) (slow)" ;;
