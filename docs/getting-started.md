@@ -102,9 +102,9 @@ Which model do you want to use? (on GPU 2: NVIDIA GeForce RTX 3080 Ti, 12 GB)
 
 | Choice | What you get |
 |---|---|
-| Best quality | Uncensored model, large text encoder. Best text and prompt following. |
-| Standard | Uncensored model, small text encoder. Needs less memory. |
-| Turbo | Official Turbo model, not uncensored. About 8 times faster. Weaker at small text. |
+| Best quality | Non-Turbo model, large text encoder. Best text and prompt following. |
+| Standard | Non-Turbo model, small text encoder. Needs less memory. |
+| Turbo | Official Turbo model. About 8 times faster. Weaker at small text. |
 
 - **Download**: what is still missing. The models share files, so a second model downloads less.
 - **GPU memory**: the whole model on the GPU. A smaller GPU keeps some weights in RAM: about the same speed on

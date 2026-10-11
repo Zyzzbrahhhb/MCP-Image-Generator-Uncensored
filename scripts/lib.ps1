@@ -316,7 +316,7 @@ function Confirm-Cpu([string]$Reason, $m) {
 # --- step 3: the model ----------------------------------------------------------------------------------------------
 # Device and recommended choice for the GPU memory in VramGB (the total when the model is split).
 function Get-Recommendation($m) {
-    # Turbo everywhere: 7-8 times faster than the uncensored model (choices 1 and 2).
+    # Turbo everywhere: 7-8 times faster than the Non-Turbo model (choices 1 and 2).
     $device = if ($m.Mac -or $m.VramGB -lt 4) { 'cpu' } else { 'gpu' }
     @{ Device = $device; Preset = $TurboChoice }
 }
@@ -361,7 +361,7 @@ function Show-Presets([int]$Recommended, [bool]$Cpu, [int]$Current, [string]$Cus
         Write-Host ' or more, slower with less.'
         Write-Host ' Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (Turbo on a GTX 1650: about 10 min).'
     }
-    Write-Host " 1 and 2 use the uncensored model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
+    Write-Host " 1 and 2 use the Non-Turbo model. $TurboChoice uses the official Turbo model: much faster, weaker at small text."
 }
 # Best quality needs about 18 GB of memory: ask before using it when Docker has less than 20 GB.
 function Confirm-Choice([int]$Choice, $m) {

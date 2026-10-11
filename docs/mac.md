@@ -8,7 +8,7 @@ Apple GPU is in development. In tests it was about 13 times faster. See [Status]
 ![The same Turbo image on an M5 Max: 148 s in Docker on the CPU, 11 s native at 512x512, 48 s native at 1024x1024](images/mac-docker-vs-native.webp)
 
 MacBook Pro M5 Max, 128 GB. "Native" is the version in development, on the Apple GPU. Turbo uses 8 steps and CFG 1.
-Non-Turbo (the uncensored model) uses 40 steps and CFG 4. Both use the 4-bit model files.
+Non-Turbo uses 40 steps and CFG 4. Both use the 4-bit model files.
 
 | Job | Turbo | Non-Turbo |
 |---|---|---|
@@ -18,11 +18,11 @@ Non-Turbo (the uncensored model) uses 40 steps and CFG 4. Both use the 4-bit mod
 | Docker (CPU only), 512x512 | 148 s | - |
 | Memory, native | about 10 GB (an edit about 13 GB) | about 18 GB with edits |
 
-- **Use Turbo on a Mac.** The uncensored model takes 7-10 minutes per image.
+- **Use Turbo on a Mac.** The Non-Turbo model takes 7-10 minutes per image.
 - **Use 1024x1024 or larger for text.** At 512x512 the text is not readable (see "SWISS MADE" in the second image).
 - A Mac with 16 GB of memory may run Turbo natively: new images used about 10 GB, an edit about 13 GB. This is not
   tested yet.
-- The uncensored model with edits uses about 18 GB. Use a Mac with 24 GB or more.
+- The Non-Turbo model with edits uses about 18 GB. Use a Mac with 24 GB or more.
 
 ## Status
 

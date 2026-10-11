@@ -1,34 +1,276 @@
-# MCP Image Generator (Uncensored)
+<a href="#quick-start"><img src="docs/images/banner.webp" width="100%" alt="MCP Image Generator: make and edit images on your own GPU, from any MCP client. Examples: a lighthouse photo, a travel poster with text, a rocket icon and a pelican riding a bicycle"></a>
+
+## Make your own `<insert-image-here>`
 
 A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that makes and edits images with
-**Qwen-Image-2.1** on your own computer. Any MCP client on your network can use it: VS Code, Cursor, LM Studio
-and others.
+**Qwen-Image-2.1** on your own computer. Ask for an image in VS Code, Cursor, LM Studio or any other MCP client on your
+network, and it appears in the chat.
 
-<a href="#examples"><img src="docs/images/showcase.webp" width="100%" alt="Examples made by this server: an edit and a watermark removal (before and after), a poster with text, an uncensored character, a transparent cutout, a 360 panorama, an icon, a seamless tile and its height and normal maps"></a>
+> *Your GPU, your images. No cloud, no account, no content filter.*
+
+* [Text to image](#make-your-own-text-to-image)
+* [Edit](#make-your-own-edit)
+* [Restoration](#make-your-own-restoration)
+* [Text in images](#make-your-own-text-in-images)
+* [Transparent PNG](#make-your-own-transparent-png)
+* [Seamless texture](#make-your-own-seamless-texture)
+* [360 panorama](#make-your-own-360-panorama)
+* [Upscale](#make-your-own-upscale)
+* [Watermark removal](#make-your-own-watermark-removal)
+* [SVG](#make-your-own-svg)
 
 - **Easy to run.** Install Docker, then run `start.cmd` (Windows) or `./start.sh` (Linux). Press Enter at each
   question. The script finds your GPU, picks the model, downloads it and starts the server.
 - **Low VRAM.** It runs on a 4 GB NVIDIA GPU. What does not fit on the GPU stays in RAM. You can also split the model
   over several GPUs and the CPU. See [GPU memory](#gpu-memory).
 - **Fast.** Turbo makes a 1344x768 photo in 5 s on an RTX 5090 and in 12 s on an RTX 3080 Ti.
-- **Quality.** The uncensored model has no content filter and writes small text well. Turbo is about 7 times faster.
+- **Quality.** The Non-Turbo model writes small text well and follows long prompts closely. See
+  [Turbo or Non-Turbo](#turbo-or-non-turbo).
 - **Mac.** For now, Docker on a Mac uses only the CPU. A native version for the Apple GPU is in development: see
   [Mac](docs/mac.md).
 
-## Turbo or uncensored
+## Gallery
+
+The Non-Turbo model made these images with its default quality settings, except the restoration example and the image
+to SVG sources, which Turbo made. The prompts are in the [table below](#prompts-and-settings).
+
+#### Make your own `Text to image`
+
+Any size or aspect ratio, up to about 4 megapixels (2048x2048). Famous characters too, which many image services
+refuse.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/text-to-image.webp" alt="A lighthouse on a rocky coast at sunset"></td>
+<td width="50%"><img src="docs/images/character.webp" alt="Iron Man standing on a rooftop at night"></td>
+</tr>
+</table>
+
+#### Make your own `Edit`
+
+Change, add or remove things, restyle, or combine up to 10 images. Here the lighthouse becomes a snowy winter night.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/text-to-image.webp" alt="A lighthouse on a rocky coast at sunset"><br>Before</td>
+<td width="50%"><img src="docs/images/edit-after.webp" alt="The same scene edited to a snowy winter night"><br>After <code>edit_image</code></td>
+</tr>
+</table>
+
+#### Make your own `Restoration`
+
+Old, scratched or faded photos: ask `edit_image` to restore them, and to add color if you like. The old photo here
+is made up, damage included.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/images/restore-before.webp" alt="A badly damaged old black and white photo of a couple in front of a farmhouse: torn pieces, deep cracks, water stains and mold"><br>Before</td>
+<td width="33%"><img src="docs/images/restore-after.webp" alt="The same photo restored: clean, sharp, black and white"><br>Restored</td>
+<td width="33%"><img src="docs/images/restore-color.webp" alt="The same photo restored and colorized"><br>Restored and colorized</td>
+</tr>
+</table>
+
+#### Make your own `Text in images`
+
+Text in quotes in the prompt is written as given.
+
+<img src="docs/images/text-rendering.webp" width="45%" alt="A vintage travel poster that reads SEE THE ALPS">
+
+#### Make your own `Transparent PNG`
+
+A transparent background straight from the prompt, or `remove_background` on any image.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/icon-transparent.webp" alt="A cartoon rocket icon on a transparent background"></td>
+<td width="50%"><img src="docs/images/transparent.webp" alt="A red fox on a transparent background"></td>
+</tr>
+</table>
+
+#### Make your own `Seamless texture`
+
+Each tile (top) repeats with no seams (bottom, 3x3). Edits of a tile stay seamless, such as height and normal maps.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/images/texture-brick.webp" alt="A red brick wall tile"></td>
+<td width="33%"><img src="docs/images/texture-wood.webp" alt="An oak wood planks tile"></td>
+<td width="33%"><img src="docs/images/texture-ceramic.webp" alt="A blue and white ceramic tile"></td>
+</tr>
+<tr>
+<td><img src="docs/images/texture-brick-3x3.webp" alt="The brick tile repeated three by three"></td>
+<td><img src="docs/images/texture-wood-3x3.webp" alt="The wood tile repeated three by three"></td>
+<td><img src="docs/images/texture-ceramic-3x3.webp" alt="The ceramic tile repeated three by three"></td>
+</tr>
+</table>
+
+<img src="docs/images/tile-maps.webp" width="100%" alt="A stone tile, its height map and its normal map, each repeated two by two"><br>
+A stone tile, then a height map and a normal map made from it with an edit, each repeated 2x2.
+
+#### Make your own `360 panorama`
+
+A full 360 view, with a link to the built-in 360 viewer in the result. `image` turns a photo into a panorama.
+
+<img src="docs/images/panorama.webp" width="100%" alt="An equirectangular 360 panorama of a mountain meadow">
+
+#### Make your own `Upscale`
+
+2x or 4x, up to 8192 px per side. Left: plain enlargement. Right: the upscaler.
+
+<img src="docs/images/upscale-detail.webp" width="100%" alt="A detail enlarged four times: plain resize on the left, AI upscaler on the right">
+
+#### Make your own `Watermark removal`
+
+Watermarks, logos and overlaid text go; the rest of the image stays as it was.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/watermark-before.webp" alt="The lighthouse photo covered with a tiled SAMPLE watermark and a corner badge"><br>Before (a test watermark added to the lighthouse)</td>
+<td width="50%"><img src="docs/images/watermark-after.webp" alt="The same photo with the watermark removed"><br>After <code>remove_watermark</code></td>
+</tr>
+</table>
+
+#### Make your own `SVG`
+
+The pelican riding a bicycle, the classic SVG test for AI models: `generate_image`, then `vectorize_image`. On the
+right is the real SVG file (94 KB), as your browser draws it.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/pelican.webp" alt="A pelican riding a bicycle, flat illustration (PNG)"><br>PNG</td>
+<td width="50%"><img src="docs/images/pelican.svg" alt="The same pelican riding a bicycle as an SVG vector file"><br>SVG</td>
+</tr>
+</table>
+
+Logos, icons, line art and lettering stay sharp at any size. Each pair is a zoomed detail: the PNG on the left, the
+SVG on the right.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/vectorize.webp" alt="A detail of the rocket icon zoomed 4x: the PNG on the left, its SVG on the right"><br>
+Icon, 4x</td>
+<td width="50%"><img src="docs/images/vectorize-logo.webp" alt="A detail of an eagle mascot logo zoomed 4x: the PNG on the left, its SVG on the right"><br>
+Logo, 4x</td>
+</tr>
+<tr>
+<td><img src="docs/images/vectorize-lineart.webp" alt="A detail of a tattoo rose line drawing zoomed 4x: the PNG on the left, its SVG on the right"><br>
+Line art, 4x</td>
+<td><img src="docs/images/vectorize-text.webp" alt="A detail of a coffee shop logo's lettering zoomed 3x: the PNG on the left, its SVG on the right"><br>
+Lettering, 3x</td>
+</tr>
+</table>
+
+#### Prompts and settings
+
+<details>
+<summary>The prompts and settings of every image above</summary>
+
+| Image | Tool and settings | Prompt |
+|---|---|---|
+| Text to image | `generate_image`, 1344x768, seed 20261006 | A lighthouse on a rocky coast at sunset, waves breaking on the rocks, warm golden light, a small fishing boat in the distance, dramatic clouds, photorealistic |
+| Edit | `edit_image` with the image above, seed 7 | Make it a snowy winter night with the lighthouse beam switched on and snow on the rocks, keep everything else unchanged |
+| Text in images | `generate_image`, 768x1024, seed 31 | A vintage travel poster, flat screen-print illustration of snowy mountains above a lake with a red train on a bridge, bold title text at the top that reads "SEE THE ALPS", smaller text at the bottom that reads "By rail, every season" |
+| Uncensored | `generate_image`, 768x1024, seed 505 | Iron Man in his red and gold armor standing on a rooftop at night, city lights below, cinematic lighting, photorealistic |
+| Icon | `generate_image`, 1024x1024, `transparent: true`, seed 404 | A cute cartoon rocket ship, flat vector illustration, bold outlines, bright colors |
+| Transparent | `generate_image`, 1024x1024, `transparent: true`, seed 11 | A red fox sitting, full body, soft studio light |
+| 360 panorama | `generate_panorama`, 2048x1024, seed 2026 | A mountain meadow with wildflowers, a stone cabin, a wooden boardwalk and a lake |
+| Brick | `generate_image`, 512x512, `tileable: true`, seed 111 | Large red bricks with light grey mortar, close-up, photorealistic, even lighting |
+| Wood | `generate_image`, 512x512, `tileable: true`, seed 222 | Wide oak floor planks with visible wood grain and knots, top-down, natural light |
+| Ceramic | `generate_image`, 512x512, `tileable: true`, seed 303 | Blue and white ceramic tiles with a floral pattern |
+| Stone tile | `generate_image`, 512x512, `tileable: true`, seed 512 | A moss-covered stone floor, top-down |
+| Height map | `edit_image` with the stone tile, seed 1 | Convert `<image1>` into a grayscale height map for a game material: white = high stone tops, black = low grout and gaps, keep the exact layout of every stone |
+| Normal map | `edit_image` with the stone tile, seed 2 | Convert `<image1>` into a normal map for a game material, keep the exact layout of every stone |
+| Watermark removal | `remove_watermark`, seed 9, on the text-to-image result with a tiled "SAMPLE" text and a corner badge added | - (no prompt needed) |
+| Upscaling | `upscale_image`, `scale: 4` on the text-to-image result | - |
+| Old photo (for the restoration) | `generate_image` with the Turbo model, 896x1152, seed 3 | A severely damaged old black and white photograph from the 1940s: a young couple standing in front of a wooden farmhouse porch, the woman in a floral dress, the man in a hat and suspenders. Heavy damage: large torn and missing pieces at the corners and edges, deep cracks running across the whole print and over the people, peeling emulsion, big brown water stains, mold spots, heavy fading and scratches everywhere, scanned photo |
+| Restored | `edit_image` with the old photo, Turbo model, seed 5 | Restore this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, fix the faded contrast, keep it black and white. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
+| Restored and colorized | `edit_image` with the old photo, Turbo model, seed 5 | Restore and colorize this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, and add natural realistic colors. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
+| Image to SVG | `vectorize_image` on the pelican, the icon, the mascot, the rose and the logo | - |
+| Pelican (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 42 | A pelican riding a bicycle, side view, full body, the pelican's feet on the pedals and its wings on the handlebars, flat vector illustration, bold simple shapes, thick dark outlines, solid colors, no gradients, no shadows, plain white background, centered |
+| Mascot (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 105 | An esports mascot logo: a fierce eagle head, thick black outlines, flat colors in blue, yellow and white, flat vector art, solid colors, no gradients, no shadows, plain white background, centered |
+| Rose (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 121 | A tattoo flash design of a rose, black line art, clean bold lines, white background |
+| Coffee logo (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 102 | A coffee shop logo "BEAN THERE": a coffee cup with heart-shaped steam and the name below, brown, flat vector art, solid colors, no gradients, no shadows, plain white background, centered |
+
+Characters and brands shown belong to their owners.
+
+</details>
+
+## Quick start
+
+New to Docker or MCP? [Getting started](docs/getting-started.md) shows each step of the setup, each choice and
+what the screens mean.
+
+1. Install Docker (see [Requirements](#requirements)) and start it. On Windows, open Docker Desktop and wait
+   until it shows that it is running.
+2. Download this project with [Git](https://git-scm.com/downloads):
+
+   ```bash
+   git clone https://github.com/hypersniper05/MCP-Image-Generator-Uncensored.git
+   cd MCP-Image-Generator-Uncensored
+   ```
+
+   Without Git: on GitHub click **Code > Download ZIP** and unzip it (updates then mean downloading it again).
+3. Run the start script from that folder:
+   - **Windows**: double-click `start.cmd`
+   - **Linux**: run `./start.sh`
+   - **Mac**: double-click `start.command` (CPU only for now, see [Mac](docs/mac.md))
+4. The first start runs the setup. It asks which GPU (when there are several) and which model to use (see
+   [Choosing a model](#choosing-a-model)). It sets the GPU memory settings for you. If you are not sure, press
+   Enter to take the recommended choice (Turbo). Choose 1 or 2 for the Non-Turbo model.
+   [Getting started](docs/getting-started.md#the-first-start) explains each choice.
+5. Wait. The first start builds the Docker image (10-30 minutes, 16 on a fast PC). Then it downloads 11-16 GB of
+   models into the `models` folder (Turbo: 13 minutes on a 1 Gbps line). When it is ready, the script prints the
+   address:
+
+   ```
+   Ready. Add this address to your AI app as an MCP server:
+       http://localhost:5005/mcp
+   ```
+
+6. Add that address to your MCP client (see [Connect an MCP client](#connect-an-mcp-client)).
+
+- **Change the model or the GPU**: run `setup.cmd` (Windows) or `./setup.sh` (Linux). Your current settings are
+  the defaults, so Enter keeps them.
+- **Update**: run `update.cmd` or `./update.sh`. Your settings and model files are kept.
+- **Stop**: `stop.cmd` or `./stop.sh`. **Logs**: `docker compose logs -f`.
+- **A message you do not understand**: see [When something goes wrong](docs/getting-started.md#messages).
+- **Web page**: open `http://localhost:5005/` to see the status, upload images and browse recent results.
+- **Model files** are saved in the `models` folder. After you change the model, the old files stay there:
+  delete the ones you no longer use to free disk space.
+- **Settings**: your choices are saved in `config.yaml` (created from
+  [`config.example.yaml`](config.example.yaml)).
+- **Updates by hand**: `git pull`, then `./start.sh --build` (or `start.cmd -Build`).
+
+<details>
+<summary>Start without the scripts</summary>
+
+```bash
+cp config.example.yaml config.yaml
+cp .env.example .env                  # for CPU mode, set COMPOSE_PROFILES=cpu in .env
+docker compose up -d --build
+```
+
+</details>
+
+> **Security note.** The server is open by design, so it is easy to connect to: it has **no login**, it
+> listens on all network interfaces, and it accepts requests from any web page. Anyone who can reach port 5005
+> can make images and see every image on the server, and so can a web page open in a browser on your network.
+> Run it on your own computer or a network you trust, use a VPN such as Tailscale for remote access, and never
+> forward the port to the internet.
+
+## Turbo or Non-Turbo
 
 <img src="docs/images/turbo-vs-uncensored.webp" width="80%" alt="The same four prompts and seeds on an RTX 5090: Turbo (8 steps, CFG 1) took 4-10 s per image, Non-Turbo (40 steps, CFG 4) took 26-44 s">
 
-| | Turbo | Non-Turbo (uncensored) |
+| | Turbo | Non-Turbo |
 |---|---|---|
-| Model | Official Qwen-Image-2.1-Turbo, 8 steps, CFG 1 | Uncensored build of Qwen-Image-2.1, 40 steps, CFG 4 |
+| Model | Official Qwen-Image-2.1-Turbo, 8 steps, CFG 1 | Qwen-Image-2.1 in a GGUF build that keeps its quality at 4-bit, 40 steps, CFG 4 |
 | 1344x768 photo, RTX 5090 32 GB | 5.1 s | 36.2 s |
 | 1024x1024 image, RTX 3080 Ti 12 GB | 11.4 s | about 90 s |
-| Uncensored | No | Yes |
 | Small text | Weak in small images (512x512 and less) | Good |
 
 **Recommended setup: Turbo Q4_K_M with the Q4_K_M text encoder.** The setup recommends it, so Enter picks it. It
-downloads 11.4 GB. The whole model needs about 14 GB of GPU memory. For the uncensored model, choose 1 or 2 in the
+downloads 11.4 GB. The whole model needs about 14 GB of GPU memory. For the Non-Turbo model, choose 1 or 2 in the
 setup.
 
 With less GPU memory, the server keeps more weights in RAM. On the same GPU this costs little time from 8 GB, and
@@ -53,101 +295,6 @@ The 3080 Ti uses the limit that the setup sets: 10 GB. Smaller GPUs: see [GPU me
 **First install**: about 30 minutes on a fast PC with a 1 Gbps line. The build took 16 minutes (10-30 minutes,
 depending on the CPU), and the Turbo download (11.4 GB) took 13 minutes. After that, the server is ready about 35 s
 after a start.
-
-## Features
-
-- **Text to image** in any size or aspect ratio, up to about 4 megapixels (2048x2048)
-- **Image editing**: change, add or remove things, restyle, or combine up to 10 images
-- **Transparent backgrounds** (RGBA PNG) and **background removal**
-- **Seamless tileable textures**, including height and normal maps that stay seamless
-- **360 panoramas** with a built-in 360 viewer
-- **Upscaling** 2x or 4x, and **watermark removal**
-- Models download automatically on the first start
-
-## Examples
-
-This server made all these images with the default quality settings of the uncensored model.
-
-<details>
-<summary>The examples at full size, with their prompts</summary>
-
-<table>
-<tr>
-<td width="50%"><img src="docs/images/text-to-image.webp" alt="A lighthouse on a rocky coast at sunset"><br>
-<b>Text to image</b></td>
-<td width="50%"><img src="docs/images/edit-after.webp" alt="The same scene edited to a snowy winter night"><br>
-<b>Edit</b>: the image on the left, made into a snowy winter night</td>
-</tr>
-<tr>
-<td><img src="docs/images/text-rendering.webp" alt="A vintage travel poster that reads SEE THE ALPS"><br>
-<b>Text in images</b>: text in quotes is written as given</td>
-<td><img src="docs/images/character.webp" alt="Iron Man standing on a rooftop at night"><br>
-<b>Uncensored</b>: famous characters, which many image services refuse</td>
-</tr>
-<tr>
-<td><img src="docs/images/icon-transparent.webp" alt="A cartoon rocket icon on a transparent background"><br>
-<b>Icon with no background</b> (transparent PNG)</td>
-<td><img src="docs/images/transparent.webp" alt="A red fox on a transparent background"><br>
-<b>Transparent background</b></td>
-</tr>
-<tr>
-<td><img src="docs/images/watermark-before.webp" alt="The lighthouse photo covered with a tiled SAMPLE watermark and a corner badge"><br>
-<b>Watermark removal</b>: before (a test watermark added to the first image)</td>
-<td><img src="docs/images/watermark-after.webp" alt="The same photo with the watermark removed"><br>
-<b>Watermark removal</b>: after <code>remove_watermark</code></td>
-</tr>
-</table>
-
-<img src="docs/images/panorama.webp" width="100%" alt="An equirectangular 360 panorama of a mountain meadow"><br>
-<b>360 panorama</b>, opened in the built-in 360 viewer from the link in the result
-
-**Seamless textures**
-
-Each texture below is one tile (top). Repeated 3x3 (bottom), it shows no seams.
-
-<table>
-<tr>
-<td width="33%"><img src="docs/images/texture-brick.webp" alt="A red brick wall tile"></td>
-<td width="33%"><img src="docs/images/texture-wood.webp" alt="An oak wood planks tile"></td>
-<td width="33%"><img src="docs/images/texture-ceramic.webp" alt="A blue and white ceramic tile"></td>
-</tr>
-<tr>
-<td><img src="docs/images/texture-brick-3x3.webp" alt="The brick tile repeated three by three"></td>
-<td><img src="docs/images/texture-wood-3x3.webp" alt="The wood tile repeated three by three"></td>
-<td><img src="docs/images/texture-ceramic-3x3.webp" alt="The ceramic tile repeated three by three"></td>
-</tr>
-</table>
-
-<img src="docs/images/tile-maps.webp" width="100%" alt="A stone tile, its height map and its normal map, each repeated two by two"><br>
-<b>Texture maps</b>: a stone tile, then a height map and a normal map made from it with an edit. Each is shown
-repeated 2x2: they all stay seamless.
-
-<img src="docs/images/upscale-detail.webp" width="100%" alt="A detail enlarged four times: plain resize on the left, AI upscaler on the right"><br>
-<b>Upscaling</b> 4x. Left: plain enlargement. Right: the upscaler.
-
-**Prompts and settings**
-
-| Image | Tool and settings | Prompt |
-|---|---|---|
-| Text to image | `generate_image`, 1344x768, seed 20261006 | A lighthouse on a rocky coast at sunset, waves breaking on the rocks, warm golden light, a small fishing boat in the distance, dramatic clouds, photorealistic |
-| Edit | `edit_image` with the image above, seed 7 | Make it a snowy winter night with the lighthouse beam switched on and snow on the rocks, keep everything else unchanged |
-| Text in images | `generate_image`, 768x1024, seed 31 | A vintage travel poster, flat screen-print illustration of snowy mountains above a lake with a red train on a bridge, bold title text at the top that reads "SEE THE ALPS", smaller text at the bottom that reads "By rail, every season" |
-| Uncensored | `generate_image`, 768x1024, seed 505 | Iron Man in his red and gold armor standing on a rooftop at night, city lights below, cinematic lighting, photorealistic |
-| Icon | `generate_image`, 1024x1024, `transparent: true`, seed 404 | A cute cartoon rocket ship, flat vector illustration, bold outlines, bright colors |
-| Transparent | `generate_image`, 1024x1024, `transparent: true`, seed 11 | A red fox sitting, full body, soft studio light |
-| 360 panorama | `generate_panorama`, 2048x1024, seed 2026 | A mountain meadow with wildflowers, a stone cabin, a wooden boardwalk and a lake |
-| Brick | `generate_image`, 512x512, `tileable: true`, seed 111 | Large red bricks with light grey mortar, close-up, photorealistic, even lighting |
-| Wood | `generate_image`, 512x512, `tileable: true`, seed 222 | Wide oak floor planks with visible wood grain and knots, top-down, natural light |
-| Ceramic | `generate_image`, 512x512, `tileable: true`, seed 303 | Blue and white ceramic tiles with a floral pattern |
-| Stone tile | `generate_image`, 512x512, `tileable: true`, seed 512 | A moss-covered stone floor, top-down |
-| Height map | `edit_image` with the stone tile, seed 1 | Convert `<image1>` into a grayscale height map for a game material: white = high stone tops, black = low grout and gaps, keep the exact layout of every stone |
-| Normal map | `edit_image` with the stone tile, seed 2 | Convert `<image1>` into a normal map for a game material, keep the exact layout of every stone |
-| Watermark removal | `remove_watermark`, seed 9, on the text-to-image result with a tiled "SAMPLE" text and a corner badge added | - (no prompt needed) |
-| Upscaling | `upscale_image`, `scale: 4` on the text-to-image result | - |
-
-Characters and brands shown belong to their owners.
-
-</details>
 
 ## Requirements
 
@@ -194,7 +341,7 @@ A real small GPU is also slower. See the GTX 1650 row: an old PC with 16 GB of D
 Docker had 12 GB, so the server read the text encoder from the disk. A GPU that keeps weights in RAM also needs a
 fast PCIe slot: in a PCIe x1 slot, each image took 5-7 s longer.
 
-An earlier test on a 12 GB GPU with the uncensored model and the text encoder in RAM ran every feature, including
+An earlier test on a 12 GB GPU with the Non-Turbo model and the text encoder in RAM ran every feature, including
 2048x2048 images, edits with 10 input images, 2880x1440 panoramas and upscaling to 8192 px.
 
 ### Split the model over GPUs and the CPU
@@ -210,69 +357,6 @@ GPU, set the parts in `config.yaml` (see [Choosing GPUs](#choosing-gpus)).
   On a GPU with 8-11 GB it was slower (19.4 s against 11.8 s at 1344x768), so the setup does not recommend it there.
 - The image decoder on the CPU makes each image much slower. Use it only when no GPU has room.
 
-## Quick start
-
-New to Docker or MCP? [Getting started](docs/getting-started.md) shows each step of the setup, each choice and
-what the screens mean.
-
-1. Install Docker (see [Requirements](#requirements)) and start it. On Windows, open Docker Desktop and wait
-   until it shows that it is running.
-2. Download this project with [Git](https://git-scm.com/downloads):
-
-   ```bash
-   git clone https://github.com/hypersniper05/MCP-Image-Generator-Uncensored.git
-   cd MCP-Image-Generator-Uncensored
-   ```
-
-   Without Git: on GitHub click **Code > Download ZIP** and unzip it (updates then mean downloading it again).
-3. Run the start script from that folder:
-   - **Windows**: double-click `start.cmd`
-   - **Linux**: run `./start.sh`
-   - **Mac**: double-click `start.command` (CPU only for now, see [Mac](docs/mac.md))
-4. The first start runs the setup. It asks which GPU (when there are several) and which model to use (see
-   [Choosing a model](#choosing-a-model)). It sets the GPU memory settings for you. If you are not sure, press
-   Enter to take the recommended choice (Turbo). Choose 1 or 2 for the uncensored model.
-   [Getting started](docs/getting-started.md#the-first-start) explains each choice.
-5. Wait. The first start builds the Docker image (10-30 minutes, 16 on a fast PC). Then it downloads 11-16 GB of
-   models into the `models` folder (Turbo: 13 minutes on a 1 Gbps line). When it is ready, the script prints the
-   address:
-
-   ```
-   Ready. Add this address to your AI app as an MCP server:
-       http://localhost:5005/mcp
-   ```
-
-6. Add that address to your MCP client (see [Connect an MCP client](#connect-an-mcp-client)).
-
-- **Change the model or the GPU**: run `setup.cmd` (Windows) or `./setup.sh` (Linux). Your current settings are
-  the defaults, so Enter keeps them.
-- **Update**: run `update.cmd` or `./update.sh`. Your settings and model files are kept.
-- **Stop**: `stop.cmd` or `./stop.sh`. **Logs**: `docker compose logs -f`.
-- **A message you do not understand**: see [When something goes wrong](docs/getting-started.md#messages).
-- **Web page**: open `http://localhost:5005/` to see the status, upload images and browse recent results.
-- **Model files** are saved in the `models` folder. After you change the model, the old files stay there:
-  delete the ones you no longer use to free disk space.
-- **Settings**: your choices are saved in `config.yaml` (created from
-  [`config.example.yaml`](config.example.yaml)).
-- **Updates by hand**: `git pull`, then `./start.sh --build` (or `start.cmd -Build`).
-
-<details>
-<summary>Start without the scripts</summary>
-
-```bash
-cp config.example.yaml config.yaml
-cp .env.example .env                  # for CPU mode, set COMPOSE_PROFILES=cpu in .env
-docker compose up -d --build
-```
-
-</details>
-
-> **Security note.** The server is open by design, so it is easy to connect to: it has **no login**, it
-> listens on all network interfaces, and it accepts requests from any web page. Anyone who can reach port 5005
-> can make images and see every image on the server, and so can a web page open in a browser on your network.
-> Run it on your own computer or a network you trust, use a VPN such as Tailscale for remote access, and never
-> forward the port to the internet.
-
 ## Choosing a model
 
 The setup asks which model to use (the first start runs it). Run `setup.cmd` or `./setup.sh` at any time to
@@ -280,17 +364,17 @@ change it.
 
 | Your GPU memory | Setup choice | Model + text encoder (file sizes) | Download | RAM used | 1024x1024 image |
 |---|---|---|---|---|---|
-| 12 GB or more | Best quality | Uncensored Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
-| 12 GB or more | Standard | Uncensored Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 14 GB | 89 s |
+| 12 GB or more | Best quality | Non-Turbo Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
+| 12 GB or more | Standard | Non-Turbo Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 14 GB | 89 s |
 | 4 GB or more | **Turbo** (recommended: fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 11 GB | 11 s |
 
 Times: one 1024x1024 image on an RTX 3080 Ti 12 GB. Each download includes 2.2 GB of files that every choice
 needs (the text encoder's vision file, the image decoder, background removal, watermark removal, upscaler). Turbo is the
-official Qwen-Image-2.1-Turbo, not the uncensored build: it is much faster, but weaker at small text and at
-following long prompts.
+official Qwen-Image-2.1-Turbo: it is much faster, but weaker at small text and at following long prompts.
+Non-Turbo is Qwen-Image-2.1 in a GGUF build by abenzerps, chosen because it keeps its quality well at 4-bit.
 
 <a href="docs/images/model-comparison.webp"><img src="docs/images/model-comparison.webp" width="100%" alt="The same watch movement with the engraved text SWISS MADE, made with each model and text encoder"></a><br>
-<b>Same prompt and seed with each combination</b> (click to see full size). The uncensored model with the Q8_0
+<b>Same prompt and seed with each combination</b> (click to see full size). The Non-Turbo model with the Q8_0
 text encoder gave the best quality. On a 12 GB card, the larger Turbo files (Q5_K_M, Q6_K) were slower than
 Q4_K_M because they do not fit as well.
 
@@ -360,6 +444,7 @@ Optional headers a client can send:
 | `remove_background` | Cut out the subject into a transparent PNG |
 | `upscale_image` | Enlarge 2x or 4x (up to 8192 px per side). Panoramas and tiles stay seamless |
 | `remove_watermark` | Remove watermarks, logos and overlaid text; the rest of the image is kept as it was |
+| `vectorize_image` | Convert a logo, icon or line art to an SVG vector file. `preset`: `auto`, `logo`, `icon`, `illustration` or `bw`. Photos become a posterized SVG |
 | `get_job`, `cancel_job` | Get the result of, or cancel, a job that was still running |
 | `list_images`, `view_image` | Recent results and uploads, and a way for the model to look at one |
 | `server_status` | Model, GPU placement, download progress and running jobs |
@@ -368,7 +453,7 @@ Optional headers a client can send:
 made, or an image uploaded on the server's web page (`http://<host>:5005/upload`).
 
 **Results** include the image (or a preview of a large one) and a link to the full file, which is saved in
-`./outputs`. Panoramas also get a link to the 360 viewer.
+`./outputs`. Panoramas also get a link to the 360 viewer, and `vectorize_image` a link to the SVG file.
 
 **Tips**
 
@@ -388,7 +473,7 @@ After a change, run the start script again and let it restart the server. The mo
 |---|---|---|
 | `device` | `gpu` | `gpu` or `cpu` |
 | `model.variant`, `model.quant`, `model.text_encoder_quant` | `uncensored`, `Q4_K_M`, `Q4_K_M` | The model: see [Choosing a model](#choosing-a-model). `setup.cmd` (Windows) or `./setup.sh` (Linux) changes these |
-| `generation.steps` | 40 | Steps of the uncensored model: quality vs. speed. 25 is a faster draft. Turbo always uses 8 |
+| `generation.steps` | 40 | Steps of the Non-Turbo model: quality vs. speed. 25 is a faster draft. Turbo always uses 8 |
 | `generation.default_size` | 1024x1024 | Size when a request gives none |
 | `generation.panorama_size` | 2048x1024 | Default panorama size (2880x1440 at most) |
 | `generation.wait_seconds` | 25 | How long a tool call (and each `get_job`) waits before returning a `job_id` (at most 280) |
@@ -452,7 +537,14 @@ Docker image from a pinned release with one small patch
 ([`docker/patches/sdcpp-circular-json.patch`](docker/patches/sdcpp-circular-json.patch)) that turns on its
 wrap-around mode per request for tileable images.
 
-## Credits and licenses
+## Contribute
+
+* Bug reports and ideas: [open an issue](https://github.com/hypersniper05/MCP-Image-Generator-Uncensored/issues).
+* Pull requests are welcome. Run the tests first: see [Development](#development).
+
+## Origins & License
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 The code in this repository is MIT licensed (see [LICENSE](LICENSE)). It builds on the work of others; the
 model files are downloaded from their original sources and keep their own licenses:
@@ -460,7 +552,7 @@ model files are downloaded from their original sources and keep their own licens
 | Part | By | License |
 |---|---|---|
 | [Qwen-Image-2.1](https://huggingface.co/Qwen) image model | Qwen team, Alibaba | Qwen Research License (**non-commercial**) |
-| [Uncensored Qwen-Image-2.1 GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) (the uncensored model files) | abenzerps | Qwen Research License (**non-commercial**) |
+| [Uncensored Qwen-Image-2.1 GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) (the Non-Turbo model files) | abenzerps | Qwen Research License (**non-commercial**) |
 | [Qwen-Image-2.1-Turbo GGUF](https://huggingface.co/AtomicChat/Qwen-Image-2.1-Turbo-GGUF) (the Turbo model files) | AtomicChat | Qwen Research License (**non-commercial**) |
 | [Texture-fix VAE](https://huggingface.co/madebyollin/texture-fix-vae-for-qwen-image-2.1) (image decoder) | madebyollin | Qwen Research License (**non-commercial**) |
 | [Qwen3-VL-8B-Instruct GGUF](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF) (prompt and image encoder) | Qwen team, Alibaba | Apache-2.0 |
@@ -471,10 +563,12 @@ model files are downloaded from their original sources and keep their own licens
 | [PyMatting](https://github.com/pymatting/pymatting) foreground estimation (ported, for clean transparent edges) | Thomas Germer et al. | MIT |
 | [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) and ggml (the inference engine) | leejet and contributors | MIT |
 | [Pannellum](https://pannellum.org) (the 360 viewer) | Matthew Petroff | MIT |
+| [VTracer](https://github.com/visioncortex/vtracer) (image to SVG) | visioncortex (Chris Tsang) | MIT |
+| [resvg](https://github.com/linebender/resvg), via [resvg-py](https://github.com/baseplate-admin/resvg-py) (SVG previews) | Yevhenii Reizner and contributors; baseplate-admin | Apache-2.0 or MIT; MIT |
 
 The Qwen-Image-2.1 files allow non-commercial use only: read their license before using images commercially.
 Only remove watermarks from images you have the rights to edit. The `:gpu` Docker image is based on NVIDIA's
 CUDA image ([license](https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license)).
 
-The uncensored model has no built-in content filter. You are responsible for how you use it and what you make
+Neither model has a built-in content filter. You are responsible for how you use it and what you make
 with it.

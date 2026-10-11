@@ -366,7 +366,7 @@ cpu_ok() {
 # --- step 3: the model ------------------------------------------------------------------------------------------------
 # recommend: sets DEVICE_REC and PRESET_REC.
 recommend() {
-  # Turbo everywhere: 7-8 times faster than the uncensored model (choices 1 and 2).
+  # Turbo everywhere: 7-8 times faster than the Non-Turbo model (choices 1 and 2).
   PRESET_REC=$TURBO
   if [ "$IS_MAC" = 1 ] || [ "$VRAM_GB" -lt 4 ]; then DEVICE_REC=cpu; else DEVICE_REC=gpu; fi
 }
@@ -399,7 +399,7 @@ EOF
     echo " or more, slower with less."
     echo " Times: one 1024x1024 image on an RTX 3080 Ti. An older GPU is much slower (Turbo on a GTX 1650: about 10 min)."
   fi
-  echo " 1 and 2 use the uncensored model. $TURBO uses the official Turbo model: much faster, weaker at small text."
+  echo " 1 and 2 use the Non-Turbo model. $TURBO uses the official Turbo model: much faster, weaker at small text."
 }
 # pick_preset MAX DEFAULT: sets CHOICE. Best quality with little memory for Docker asks first.
 pick_preset() {
