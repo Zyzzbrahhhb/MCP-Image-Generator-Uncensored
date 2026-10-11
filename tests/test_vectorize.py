@@ -175,3 +175,22 @@ async def test_svg_is_served_with_a_strict_policy_but_never_listed(tmp_path):
         assert client.get("/outputs/../secret.svg").status_code == 404
         listed = [e["file"] for e in client.get("/api/images").json()["outputs_and_uploads"]]
     assert rel not in listed and rel[:-4] + ".png" in listed
+
+
+def test_two_colour_art_keeps_its_colours():
+    """Dark brown on cream is two-colour art, but not black and white: the SVG keeps brown and cream."""
+    img = Image.new("RGB", (256, 256), (245, 238, 225))
+    d = ImageDraw.Draw(img)
+    d.ellipse((40, 40, 216, 216), outline=(62, 39, 30), width=14)
+    d.rectangle((96, 110, 160, 170), fill=(62, 39, 30))
+    v = vz.vectorize(img)
+    fills = {f.upper() for f in re.findall(r'fill="(#[0-9A-Fa-f]{6})"', v.svg)}
+    assert v.preset == "bw" and len(fills) == 2, fills
+    got = sorted(tuple(int(f[i:i + 2], 16) for i in (1, 3, 5)) for f in fills)
+    for have, want in zip(got, [(62, 39, 30), (245, 238, 225)]):  # measured colours: within a step or two
+        assert max(abs(x - y) for x, y in zip(have, want)) <= 3, fills
+    # Neutral ink and paper still become pure black and white.
+    grey = Image.new("RGB", (256, 256), (236, 236, 234))
+    ImageDraw.Draw(grey).rectangle((60, 60, 196, 196), fill=(18, 18, 20))
+    fills = {f.upper() for f in re.findall(r'fill="(#[0-9A-Fa-f]{6})"', vz.vectorize(grey).svg)}
+    assert fills == {"#000000", "#FFFFFF"}, fills

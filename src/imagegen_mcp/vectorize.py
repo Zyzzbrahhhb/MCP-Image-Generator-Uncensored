@@ -371,6 +371,19 @@ def _is_black_and_white(colors: list) -> bool:
     return len(lum) == 1 or lum[-1] - lum[0] > 128
 
 
+def _bw_palette(colors: list) -> list[tuple[int, int, int]]:
+    """The ink and the paper of two-colour art, darkest first. Neutral ones become pure black and white; tinted ones
+    keep their colour (a dark brown badge on cream stays brown on cream, not black on white)."""
+    found = sorted((c for c, *_ in colors), key=lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2])
+    if len(found) < 2:
+        return [(0, 0, 0), (255, 255, 255)]
+
+    def snap(c: tuple[int, int, int], pure: tuple[int, int, int]) -> tuple[int, int, int]:
+        return pure if max(c) - min(c) <= 12 else tuple(int(v) for v in c)
+
+    return [snap(found[0], (0, 0, 0)), snap(found[-1], (255, 255, 255))]
+
+
 def choose(rgb: Image.Image, mask: Image.Image | None, preset: str,
            colors: int | None) -> tuple[str, list[tuple[int, int, int]], Look]:
     """The preset and the palette: 'auto' picks the preset from what the image is made of."""
@@ -392,7 +405,7 @@ def choose(rgb: Image.Image, mask: Image.Image | None, preset: str,
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset!r}; use one of {', '.join(PRESET_NAMES)}")
     if preset == "bw":
-        return preset, [(0, 0, 0), (255, 255, 255)], seen
+        return preset, _bw_palette(seen.colors), seen
     if colors:  # the caller's colour count: an even colour reduction
         return preset, _octree(_visible(rgb, mask), int(colors)), seen
     cap = PRESETS[preset]["colors"]
@@ -429,8 +442,10 @@ def clean(rgb: Image.Image, mask: Image.Image | None, palette: list[tuple[int, i
     if lines and len(palette) == 2:
         flat = _two_tone(rgb, palette)
     elif binary:
-        flat = _majority(rgb.convert("L").filter(ImageFilter.MedianFilter(3)).point(lambda v: 255 if v > 128 else 0))
-        flat = flat.convert("RGB")
+        dark, light = palette[0], palette[-1]
+        mid = (0.299 * (dark[0] + light[0]) + 0.587 * (dark[1] + light[1]) + 0.114 * (dark[2] + light[2])) / 2
+        bits = _majority(rgb.convert("L").filter(ImageFilter.MedianFilter(3)).point(lambda v: 255 if v > mid else 0))
+        flat = Image.fromarray(np.where(np.asarray(bits)[..., None] > 0, light, dark).astype(np.uint8))
     else:
         q = rgb.filter(ImageFilter.MedianFilter(3)).quantize(palette=_palette_image(palette), dither=Image.Dither.NONE)
         flat = q.filter(ImageFilter.ModeFilter(MODE_SIZE)).convert("RGB")
