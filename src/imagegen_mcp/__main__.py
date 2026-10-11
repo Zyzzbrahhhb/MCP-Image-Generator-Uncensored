@@ -84,12 +84,15 @@ def main(argv: list[str] | None = None) -> int:
                                 timeout_keep_alive=75, proxy_headers=False)
         server = uvicorn.Server(config)
         startup = asyncio.create_task(service.startup())
+        background = [asyncio.create_task(fn()) for fn in service.background]
         log.info("MCP server listening on http://%s:%d%s (no auth)", cfg.server.host, cfg.server.port,
                  cfg.server.path)
         try:
             await server.serve()  # uvicorn handles SIGINT/SIGTERM
         finally:
             startup.cancel()
+            for task in background:
+                task.cancel()
             await service.shutdown()
 
     asyncio.run(run())

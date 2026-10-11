@@ -279,6 +279,30 @@ class UpscaleConfig(_Section):
     timeout_seconds: int = Field(900, ge=30)
 
 
+class ExtensionsConfig(_Section):
+    """Optional extensions (folders in extensions/), installed by the setup. Their tools appear on this server."""
+    enabled: list[str] = Field(default_factory=list)
+    # GPU jobs that may run at once, images and extensions together. auto: 1 when an extension shares a GPU of
+    # 12 GB or less with the image model (a video then waits for the image, and the other way round), else 2.
+    max_jobs: Union[Literal["auto"], int] = "auto"
+    dir: Path = Path("/extensions")
+
+    @field_validator("max_jobs")
+    @classmethod
+    def _max_jobs(cls, v):
+        if isinstance(v, int) and v < 1:
+            raise ValueError("max_jobs must be auto or 1 or more")
+        return v
+
+    @field_validator("enabled")
+    @classmethod
+    def _names(cls, v):
+        for name in v:
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", name):
+                raise ValueError(f"invalid extension name {name!r} (lowercase letters, digits, - and _)")
+        return v
+
+
 class Config(_Section):
     device: Literal["gpu", "cpu"] = "gpu"
     gpu: GpuConfig = Field(default_factory=GpuConfig)
@@ -291,6 +315,7 @@ class Config(_Section):
     panorama: PanoramaConfig = Field(default_factory=PanoramaConfig)
     watermark: WatermarkConfig = Field(default_factory=WatermarkConfig)
     upscale: UpscaleConfig = Field(default_factory=UpscaleConfig)
+    extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
 
     models_dir: Path = Path("/models")
     outputs_dir: Path = Path("/outputs")

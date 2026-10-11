@@ -38,12 +38,18 @@ function Test-Interactive {
 }
 
 # --- input --------------------------------------------------------------------------------------------------------
+# Keys pressed before a question appears (e.g. Enter pressed twice on the question before) must not answer it.
+function Clear-TypeAhead {
+    try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch { }   # redirected input: none
+}
 function Read-Answer([string]$Prompt, [string]$Default) {
+    Clear-TypeAhead
     # FormKC turns full-width digits (Japanese and Chinese input methods) into 0-9.
     $a = "$(Read-Host "$Prompt [$Default]")".Normalize([Text.NormalizationForm]::FormKC).Trim()
     if ($a) { $a } else { $Default }
 }
 function Read-YesNo([string]$Prompt, [bool]$Default) {
+    Clear-TypeAhead
     $hint = if ($Default) { '[Y/n]' } else { '[y/N]' }
     $a = "$(Read-Host "$Prompt $hint")".Trim()
     if (-not $a) { return $Default }
@@ -740,10 +746,40 @@ function Invoke-Console([string]$Exe, [string[]]$ArgList) {
 }
 # Step 4a. Builds the image (or pulls it with IMAGE_REPO) when it is missing, with -Force, or after an update changed
 # the server code. Returns $false when that failed.
+# A short hash of the files that go into the server image (lib.sh code_stamp computes the same value). The image is
+# labelled with it when it is built, so a copy of the project in another folder (or changed by hand) is never run
+# with an image of other code.
+function Get-CodeStamp {
+    $rows = @{}
+    foreach ($p in 'Dockerfile', 'pyproject.toml', 'uv.lock', '.dockerignore', 'src', 'docker/patches') {
+        $full = Join-Path $Root $p
+        if (-not (Test-Path -LiteralPath $full)) { continue }
+        $files = if (Test-Path -LiteralPath $full -PathType Leaf) { @(Get-Item -LiteralPath $full -Force) }
+                 else { @(Get-ChildItem -LiteralPath $full -Recurse -File -Force) }
+        foreach ($f in $files) {
+            if ($f.FullName -match '[\\/]__pycache__[\\/]' -or $f.Extension -eq '.pyc') { continue }
+            $rel = $f.FullName.Substring($Root.TrimEnd('\', '/').Length + 1).Replace('\', '/')
+            $rows[$rel] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
+        }
+    }
+    $keys = [string[]]@($rows.Keys)
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    $text = -join ($keys | ForEach-Object { "$($rows[$_])  $_`n" })
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))
+    (-join ($hash | ForEach-Object { $_.ToString('x2') })).Substring(0, 16)
+}
 function Build-Image($s, [bool]$Force) {
     if (Test-Path -LiteralPath $BuildMark) { $Force = $true }
+    $stamp = Get-CodeStamp
+    $env:IMAGEGEN_CODE = $stamp
     $have = (Invoke-Program 'docker' @('image', 'inspect', $s.Image)).Code -eq 0
-    if ($have -and -not $Force) { Write-Host '==> Using the image server you already built.'; return $true }
+    if ($have -and -not $Force) {
+        $label = Get-FirstLine (Invoke-Program 'docker' @('image', 'inspect', '-f', '{{index .Config.Labels "imagegen.code"}}', $s.Image)).Out
+        if ($s.ImageRepo -or "$label".Trim() -eq $stamp) { Write-Host '==> Using the image server you already built.'; return $true }
+        Write-Host "==> The image server was built from other code than this folder's, so it is built again."
+        $Force = $true
+    }
     if ($s.ImageRepo) {
         Write-Host "==> Downloading the image server ($($s.Image))..."
         if ((Invoke-Console 'docker' @('compose', '--profile', $s.Profile, 'pull')) -eq 0) {
@@ -899,6 +935,7 @@ function Start-Server([string]$Mode, [bool]$Build) {
     }
     if (-not (Build-Image $s $Build)) { exit 1 }
     Write-Host '==> Starting the server...'
+    Stop-Exts   # extensions use the server's private network; Start-Exts starts them again afterwards
     Invoke-Program 'docker' @('compose', '--profile', 'gpu', '--profile', 'cpu', 'down', '--remove-orphans') | Out-Null
     Invoke-Program 'docker' @('rm', '-f', 'imagegen-mcp') | Out-Null
     $r = Invoke-Program 'docker' @('compose', '--profile', $s.Profile, 'up', '-d', '--no-build')
@@ -908,6 +945,7 @@ function Start-Server([string]$Mode, [bool]$Build) {
 }
 function Stop-Server {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Host 'Docker is not installed, so the server is not running.'; return }
+    Stop-Exts   # first: they use the server's private network
     $r = Invoke-Program 'docker' @('compose', '--profile', 'gpu', '--profile', 'cpu', 'down')
     if ($r.Code -ne 0) {
         $r.All | Where-Object { "$_".Trim() } | Select-Object -Last 5 | ForEach-Object { Write-Host $_ }
@@ -1036,6 +1074,7 @@ function Update-FromGit {
     $diff = Invoke-Git (@('diff', '--name-only', $old, 'HEAD', '--') + $ImagePaths)
     if (@($diff.Out | Where-Object { "$_".Trim() }).Count -gt 0) { $needBuild = $true }
     if ($needBuild) { Set-Content -LiteralPath (Join-Path $Root $BuildMark) -Value 'an update changed the server' -Encoding ascii }
+    Set-ExtChanged $old
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'config.yaml'))) { Write-Host 'Run start.cmd to set it up and start it.'; return }
     $start = $null
     if ($needBuild) {
@@ -1055,3 +1094,6 @@ function Update-FromGit {
         exit $LASTEXITCODE
     }
 }
+
+# Optional extensions (extensions\<name>\).
+. (Join-Path $PSScriptRoot 'extensions.ps1')

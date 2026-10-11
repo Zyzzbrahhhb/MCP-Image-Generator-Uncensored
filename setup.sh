@@ -11,7 +11,9 @@ main() {
   echo "Image Gen MCP setup"
   check_docker
   run_setup
+  ext_setup
   start_server restart 0
+  ext_start_all
 }
 # One line, so bash has read all of it before it runs: an update can replace this file while it runs.
 main "$@"; exit

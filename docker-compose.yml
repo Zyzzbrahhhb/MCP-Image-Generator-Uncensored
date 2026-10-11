@@ -17,6 +17,9 @@ x-common: &common
     - ./outputs:/outputs
     - ./config.yaml:/app/config.yaml:ro
     - ${INPUTS_DIR:-./inputs}:/inputs:ro
+    - ./extensions:/extensions:ro
+  # default: internet (model downloads, image URLs). imagegen-ext: the private network to installed extensions.
+  networks: [default, imagegen-ext]
   environment:
     HF_TOKEN: ${HF_TOKEN:-}
     IMAGEGEN_PUBLIC_URL: ${PUBLIC_URL:-}
@@ -42,6 +45,8 @@ services:
         CUDA_VERSION: ${CUDA_VERSION:-12.8.2}
         CUDA_ARCHS: ${CUDA_ARCHS:-75-virtual;80-virtual;86-real;89-real;90-virtual;120a-real}
         BUILD_JOBS: ${BUILD_JOBS:-8}
+      labels:
+        imagegen.code: ${IMAGEGEN_CODE:-}  # the start scripts set it: a hash of the code in this folder
     gpus: all
 
   imagegen-cpu:
@@ -54,3 +59,12 @@ services:
       target: cpu
       args:
         BUILD_JOBS: ${BUILD_JOBS:-8}
+      labels:
+        imagegen.code: ${IMAGEGEN_CODE:-}
+
+networks:
+  default: {}
+  # Extensions (extensions/*) join only this network: they have no internet access and no port on the host.
+  imagegen-ext:
+    name: imagegen-ext
+    internal: true

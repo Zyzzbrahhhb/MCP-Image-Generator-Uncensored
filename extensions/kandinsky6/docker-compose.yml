@@ -1,0 +1,71 @@
+# Kandinsky 6 video extension. The setup builds and starts it when you choose it; the image server forwards its tools.
+#   docker compose -f extensions/kandinsky6/docker-compose.yml up -d            (start)
+#   docker compose -f extensions/kandinsky6/docker-compose.yml --profile download run --rm download   (models)
+# Per-machine settings (GPU, mode) are in extensions/kandinsky6/.env, written by the setup (see .env.example).
+name: imagegen-kandinsky6
+
+x-common: &common
+  build: .
+  image: imagegen-kandinsky6:latest
+  user: "1000:1000"
+  read_only: true
+  tmpfs:
+    - /tmp:size=4g
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  volumes:
+    - ./models:/models
+    - ../../outputs:/outputs
+  environment: &env
+    HOME: /tmp
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    # No prebuilt kernel downloads: Triton compiles its kernels locally.
+    ORBITQUANT_KERNELS_AUTOFETCH: "0"
+    ORBITQUANT_KERNELS_CACHE: /models/orbitquant-kernels
+    ORBITQUANT_CODEBOOK_CACHE_DIR: /models/orbitquant-codebooks
+    TRITON_CACHE_DIR: /models/triton-cache
+    TORCHINDUCTOR_CACHE_DIR: /models/inductor-cache
+
+services:
+  kandinsky6:
+    <<: *common
+    container_name: imagegen-kandinsky6
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    mem_limit: ${VIDEO_MEM_LIMIT:-20g}
+    gpus: all
+    environment:
+      <<: *env
+      # Docker Desktop shows every GPU to every container, so the card is chosen by UUID here.
+      CUDA_VISIBLE_DEVICES: ${VIDEO_GPU:-0}
+      VIDEO_MODE: ${VIDEO_MODE:-low-memory}
+      VIDEO_CAP_GB: ${VIDEO_CAP_GB:-}
+      VIDEO_IDLE_UNLOAD_SECONDS: ${VIDEO_IDLE_UNLOAD_SECONDS:-600}
+      HF_HUB_OFFLINE: "1"
+    # Only the private extension network: no internet access, no port on the host. The image server reaches it
+    # at http://imagegen-kandinsky6:5010/mcp.
+    networks: [imagegen-ext]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5010/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # Downloads the models once and checks them (needs internet), then precomputes OrbitQuant's codebooks.
+  download:
+    <<: *common
+    container_name: imagegen-kandinsky6-download
+    profiles: [download]
+    entrypoint: ["sh", "-c", "python -m video_ext download && python -m video_ext codebooks"]
+
+networks:
+  imagegen-ext:
+    external: true
+    name: imagegen-ext

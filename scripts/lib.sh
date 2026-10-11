@@ -781,12 +781,30 @@ show_stopped() {
 
 # build_image FORCE: step 4a. Builds the image (or pulls it with IMAGE_REPO) when it is missing, when FORCE is 1 or
 # after an update changed the server code.
+# code_stamp: a short hash of the files that go into the server image. The image is labelled with it when it is
+# built, so a copy of the project in another folder (or changed by hand) is never run with an image of other code.
+# lib.ps1 computes the same value.
+code_stamp() {
+  local f
+  find Dockerfile pyproject.toml uv.lock .dockerignore src docker/patches -type f ! -path '*/__pycache__/*' \
+    ! -name '*.pyc' 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+      printf '%s  %s\n' "$(sha256_of < "$f")" "$f"
+    done | sha256_of | cut -c1-16
+}
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -c1-64; else shasum -a 256 | cut -c1-64; fi; }
+image_stamp() { docker image inspect -f '{{index .Config.Labels "imagegen.code"}}' "$IMAGE" 2>/dev/null | tr -d '\r'; }
 build_image() {
-  local again=
+  local again= stamp
   if [ -f "$BUILD_MARK" ]; then set -- 1; fi
+  stamp=$(code_stamp)
+  export IMAGEGEN_CODE=$stamp
   if [ "$1" != 1 ] && docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "==> Using the image server you already built."
-    return 0
+    if [ -n "$IMAGE_REPO" ] || [ "$(image_stamp)" = "$stamp" ]; then
+      echo "==> Using the image server you already built."
+      return 0
+    fi
+    echo "==> The image server was built from other code than this folder's, so it is built again."
+    set -- 1
   fi
   if [ -n "$IMAGE_REPO" ]; then
     echo "==> Downloading the image server ($IMAGE)..."
@@ -965,6 +983,7 @@ start_server() {
   fi
   build_image "${2:-0}" || exit 1
   echo "==> Starting the server..."
+  ext_stop_all   # extensions use the server's private network; ext_start_all starts them again afterwards
   docker compose --profile gpu --profile cpu down --remove-orphans >/dev/null 2>&1 || true
   docker rm -f imagegen-mcp >/dev/null 2>&1 || true
   if ! out=$(docker compose --profile "$PROFILE" up -d --no-build 2>&1); then
@@ -1089,6 +1108,7 @@ EOF
   # shellcheck disable=SC2086  # IMAGE_PATHS is a list of paths
   if [ -n "$(git --no-pager diff --name-only "$old" HEAD -- $IMAGE_PATHS 2>/dev/null || true)" ]; then need_build=1; fi
   if [ "$need_build" = 1 ]; then touch "$BUILD_MARK"; fi
+  ext_mark_changed "$old" HEAD
   if [ ! -f config.yaml ]; then echo "Run $(launcher start) to set it up and start it."; return 0; fi
   if [ "$need_build" = 1 ]; then
     echo "    The server itself changed, so it is built again (10-30 minutes) and restarted."
@@ -1105,3 +1125,6 @@ EOF
   # The new start script (git just replaced it) builds the image if needed and restarts the server.
   if [ -n "$start" ]; then exec bash ./start.sh; fi
 }
+
+# Optional extensions (extensions/<name>/).
+. ./scripts/extensions.sh

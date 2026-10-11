@@ -1,0 +1,4 @@
+# this computer's settings and the downloaded models
+.env
+models/
+__pycache__/

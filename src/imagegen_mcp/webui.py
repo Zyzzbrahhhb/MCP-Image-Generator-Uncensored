@@ -66,7 +66,7 @@ input[type=range]{accent-color:var(--teal);width:110px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile,180px),1fr));gap:8px}
 .tile{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;cursor:pointer;background:
  repeating-conic-gradient(var(--chk) 0 25%,transparent 0 50%) 50%/16px 16px,var(--panel);outline:3px solid transparent;transition:outline-color .1s}
-.tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s}
+.tile img,.tile video{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s}
 .tile:hover img{transform:scale(1.03)}
 .tile .ck{position:absolute;top:7px;left:7px;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:#0004;
  opacity:0;transition:opacity .12s;display:grid;place-items:center;box-shadow:0 1px 4px #0006}
@@ -91,7 +91,9 @@ input[type=range]{accent-color:var(--teal);width:110px}
 .vimg{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:8px 60px 24px;min-height:0}
 .vimg img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;cursor:zoom-in;background:
  repeating-conic-gradient(#ffffff14 0 25%,transparent 0 50%) 50%/20px 20px}
-.vimg.bg-black img{background:#000}.vimg.bg-white img{background:#fff}
+.vimg.bg-black img,.vimg.bg-black video{background:#000}.vimg.bg-white img,.vimg.bg-white video{background:#fff}
+.vimg video{max-width:100%;max-height:100%;border-radius:4px;display:none;background:
+ repeating-conic-gradient(#ffffff14 0 25%,transparent 0 50%) 50%/20px 20px}.vimg.vid video{display:block}.vimg.vid img{display:none}
 .vimg.zoom{align-items:flex-start;justify-content:flex-start}.vimg.zoom img{max-width:none;max-height:none;cursor:zoom-out}
 .nav-btn{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:64px;border-radius:10px;border:0;background:#ffffff14;color:#fff;font-size:26px}
 .nav-btn:hover{background:#ffffff2a}#prev{left:8px}#next{right:8px}
@@ -143,7 +145,7 @@ input[type=range]{accent-color:var(--teal);width:110px}
 </div>
 <div id="viewer"><div class="stage"><div class="vtop"><div class="t" id="vtitle"></div><span id="vpos" style="opacity:.7;font-size:13px"></span>
  <span id="vbtns"></span><button id="vinfo" title="Info (I)">Info</button><button id="vclose" title="Close (Esc)">&#10005;</button></div>
- <div class="vimg" id="vimg"><img id="vpic" alt=""></div><button class="nav-btn" id="prev" title="Previous">&#8249;</button>
+ <div class="vimg" id="vimg"><img id="vpic" alt=""><video id="vvid" controls playsinline preload="metadata"></video></div><button class="nav-btn" id="prev" title="Previous">&#8249;</button>
  <button class="nav-btn" id="next" title="Next">&#8250;</button></div><div class="info" id="vpanel"></div></div>
 <div id="modal"><div class="box"><h3 id="mtitle"></h3><p id="mtext"></p><div class="acts"><button id="mno">Cancel</button>
  <button id="myes" class="danger solid"></button></div></div></div>
@@ -213,9 +215,12 @@ function renderBar(base){$('#title').textContent=viewTitle();const present=[...n
  $('#trashacts').innerHTML=isTrash()&&S.allowDelete&&S.trash.length?'<button class="danger" id="empty">Empty trash</button>':'';
  $('#sort').value=S.sort;$('#size').value=S.size}
 function tile(e,i){const tr=isTrash();const b=[];if(e.panorama)b.push('360°');if(e.svg)b.push('SVG');
+ if(e.video)b.push('&#9654;'+(e.info&&e.info.seconds?` ${Math.round(e.info.seconds)} s`:''));
  const s=S.size>220?512:256,src=`thumbs/${enc(e.file)}?s=${s}${tr?'&trash=1':''}`;
  const dim=e.width?` · ${e.width}x${e.height}`:'';
- return`<div class="tile ${S.sel.has(e.file)?'sel':''}" data-i="${i}" title="${esc(e.name)}"><img loading="lazy" decoding="async" src="${src}" alt="">
+ const pic=e.video&&!e.poster&&!tr?`<video muted playsinline preload="metadata" src="outputs/${enc(e.file)}#t=0.1"></video>`
+  :`<img loading="lazy" decoding="async" src="${src}" alt="">`;
+ return`<div class="tile ${S.sel.has(e.file)?'sel':''}" data-i="${i}" title="${esc(e.name)}">${pic}
  <span class="ck" data-ck="${i}">${ICON.check}</span><span class="badges">${b.map(x=>`<span class="badge">${x}</span>`).join('')}</span>
  <span class="cap">${esc(S.kinds[e.kind]||'')}${dim}</span></div>`}
 function render(){renderSide();const {list,base}=filtered();S.shown=list;renderBar(base);
@@ -274,9 +279,12 @@ async function copyText(t){if(navigator.clipboard&&window.isSecureContext){try{a
 async function copy(t,what){toast(await copyText(t)?`${what} copied`:'Select the text and press Ctrl+C')}
 // ---------------------------------------------------------------- viewer
 function openViewer(i){S.cur=i;$('#viewer').classList.add('on');showCur()}
-function closeViewer(){S.cur=-1;S.openFile='';writeHash();$('#viewer').classList.remove('on');$('#vimg').classList.remove('zoom')}
+function stopVideo(){const v=$('#vvid');v.pause();v.removeAttribute('src');v.removeAttribute('poster');v.load()}
+function closeViewer(){S.cur=-1;S.openFile='';writeHash();stopVideo();$('#viewer').classList.remove('on');$('#vimg').classList.remove('zoom','vid')}
 function showCur(){const e=S.shown[S.cur];if(!e)return closeViewer();const tr=isTrash();if(!tr){S.openFile=e.file;writeHash()}
- $('#vimg').classList.remove('zoom');$('#vpic').src=tr?`thumbs/${enc(e.file)}?s=512&trash=1`:'outputs/'+enc(e.file);
+ $('#vimg').classList.remove('zoom');stopVideo();const vid=!!e.video&&!tr;$('#vimg').classList.toggle('vid',vid);
+ if(vid){const v=$('#vvid');if(e.poster)v.poster='outputs/'+enc(e.poster);v.src='outputs/'+enc(e.file);v.play().catch(()=>{})}
+ else $('#vpic').src=tr||e.video?`thumbs/${enc(e.file)}?s=512${tr?'&trash=1':''}`:'outputs/'+enc(e.file);
  $('#vtitle').textContent=e.name;$('#vpos').textContent=`${S.cur+1} / ${S.shown.length}`;
  const btn=[];if(!tr){btn.push(`<a href="outputs/${enc(e.file)}" download>Download</a>`,`<a href="outputs/${enc(e.file)}" target="_blank">Open</a>`);
   if(e.panorama)btn.push(`<a href="view/${enc(e.file)}" target="_blank">360 viewer</a>`);if(e.svg)btn.push(`<a href="outputs/${enc(e.svg)}" target="_blank">SVG</a>`);
@@ -284,9 +292,10 @@ function showCur(){const e=S.shown[S.cur];if(!e)return closeViewer();const tr=is
  $('#vbtns').innerHTML=btn.join(' ');
  const tool={generate:'generate_image',edit:'edit_image',panorama:'generate_panorama',upscale:'upscale_image',
   vectorize:'vectorize_image'}[e.tool]||e.tool||'';
- const i=e.info||{},rows=[['Type',S.kinds[e.kind]||'Other'],['Size',e.width?`${e.width} x ${e.height}`:''],['File',fmtBytes(e.bytes)],
+ const i=e.info||{},rows=[['Type',S.kinds[e.kind]||'Other'],['Size',e.width?`${e.width} x ${e.height}`:''],
+  ['Length',e.video&&i.seconds?`${i.seconds} s`:''],['File',fmtBytes(e.bytes)],
   ['Date',new Date(e.modified).toLocaleString()],['Folder',e.folder||'outputs'],['Tool',tool]];
- const skip=new Set(['prompt','negative_prompt','width','height']),label=k=>({cfg_scale:'CFG scale'}[k]||k.charAt(0).toUpperCase()+k.slice(1).replace(/_/g,' '));
+ const skip=new Set(['prompt','negative_prompt','width','height','seconds','poster']),label=k=>({cfg_scale:'CFG scale'}[k]||k.charAt(0).toUpperCase()+k.slice(1).replace(/_/g,' '));
  for(const [k,v] of Object.entries(i))if(!skip.has(k)&&v!==''&&v!=null)rows.push([label(k),v]);
  let h='';
  if(i.prompt)h+=`<h4>Prompt</h4><div class="prompt">${esc(i.prompt)}</div><button data-copy="${esc(i.prompt)}" data-what="Prompt">Copy prompt</button>`;

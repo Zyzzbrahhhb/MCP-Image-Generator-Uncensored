@@ -1,0 +1,15 @@
+orbitquant==0.12.0
+diffusers @ git+https://github.com/huggingface/diffusers.git@d961a388fd02e4db38d17350c8dd9b8abe642e05
+huggingface-hub==1.33.0
+transformers==5.13.0
+accelerate==1.15.0
+kernels==0.17.2
+mcp==2.3.0
+uvicorn>=0.54.0
+imageio
+imageio-ffmpeg
+av
+scipy
+librosa
+soundfile
+einops

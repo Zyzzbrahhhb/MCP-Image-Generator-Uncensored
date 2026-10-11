@@ -30,6 +30,7 @@ from .config import Config
 from .devices import DevicePlan, build_device_plan
 from .jobs import JobManager
 from .library import Library, listed
+from .library import servable as _servable
 from .imaging import ImageInputError
 from .models import ModelStore
 from .schedule import official_sigmas, turbo_sigmas
@@ -111,7 +112,7 @@ PANORAMA_WRAP_PX = 32  # input columns copied from the opposite edge on each sid
 SAVED_CACHE_BYTES = 2 * 1024 * 1024  # results up to this size stay in memory; larger ones are re-read from disk
 # Whether a path under outputs/ is listed and served: an image file outside hidden folders (.previews.json, .trash/,
 # .stversions/ ...). The web page's library uses the same rule.
-servable = listed
+servable = _servable  # images, videos and video posters (library.servable)
 
 
 def _is_sphere_file(path: Path) -> bool:
@@ -215,6 +216,8 @@ class ImageService:
         self.active_jobs = 0
         self._circular_failed = False  # set when sd-server ran a circular request without applying it
         self.jobs = JobManager(on_result=lambda kind, result: self.library.record(kind, result))
+        self.background: list = []   # coroutine functions started with the server (e.g. the extension watcher)
+        self.extensions = None
         self.outputs = Path(cfg.outputs_dir)
         self._library: Library | None = None
         self.previews = PreviewRegistry(self.outputs)

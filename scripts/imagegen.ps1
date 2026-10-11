@@ -26,23 +26,28 @@ switch ($Action) {
             Write-Host ''
             Write-Host '==> The first install did not finish, so the setup runs again.'
             Invoke-Setup
+            Invoke-ExtSetup (Get-Machine)
             $mode = 'restart'
         } elseif (Test-Path -LiteralPath config.yaml) {
             Show-Settings (Get-Machine)
         } elseif (Test-Interactive) {
             Invoke-Setup
+            Invoke-ExtSetup (Get-Machine)
             $mode = 'restart'
         } else {
             Copy-Item -LiteralPath config.example.yaml -Destination (Join-Path $Root 'config.yaml')
             Write-Host '==> created config.yaml from config.example.yaml (run setup.cmd to choose the GPU and the model)'
         }
         Start-Server $mode $Build
+        Start-Exts
     }
     'setup' {
         Write-Host 'Image Gen MCP setup'
         Test-Docker
         Invoke-Setup
+        Invoke-ExtSetup (Get-Machine)
         Start-Server 'restart' $false
+        Start-Exts
     }
     'update' {
         Write-Host 'Image Gen MCP update'

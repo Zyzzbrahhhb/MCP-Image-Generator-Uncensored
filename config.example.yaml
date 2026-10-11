@@ -180,3 +180,16 @@ upscale:
   model: 4xNomos2_otf_esrgan
   tile_size: 128           # input pixels per tile; larger is a little faster and needs more VRAM
   timeout_seconds: 900     # an upscale that takes longer is stopped
+
+# -----------------------------------------------------------------------------
+# Extensions (optional parts in extensions/, installed by the setup)
+# -----------------------------------------------------------------------------
+# An installed extension runs in its own container; its tools are offered on this server's MCP address, and each
+# call runs as a job (get_job, cancel_job). The setup writes "enabled" and the extension's own settings
+# (extensions/<name>/.env, e.g. which GPU the video uses and its memory mode).
+#   kandinsky6: text/image to video with sound, transparent animations and GIFs. See docs/kandinsky6.md.
+extensions:
+  enabled: []              # e.g. [kandinsky6]
+  max_jobs: auto           # GPU jobs that run at once, images and extensions together (1, 2, ...).
+                           # auto: 1 when an extension shares a GPU of 12 GB or less with the image model (a video
+                           # then waits for an image and the other way round), otherwise 2.

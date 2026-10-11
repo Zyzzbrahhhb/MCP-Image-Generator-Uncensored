@@ -26,18 +26,21 @@ main() {
     echo
     echo "==> The first install did not finish, so the setup runs again."
     run_setup
+    ext_setup
     mode=restart
   elif [ -f config.yaml ]; then
     detect
     show_settings
   elif interactive; then
     run_setup
+    ext_setup
     mode=restart
   else
     cp config.example.yaml config.yaml
     echo "==> created config.yaml from config.example.yaml (run $(launcher setup) to choose the GPU and the model)"
   fi
   start_server "$mode" "$build"
+  ext_start_all
 }
 # One line, so bash has read all of it before it runs: an update can replace this file while it runs.
 main "$@"; exit

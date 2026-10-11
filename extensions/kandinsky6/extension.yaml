@@ -1,0 +1,15 @@
+# An extension of Image Gen MCP. The setup offers it; when it is installed, "kandinsky6" is listed under
+# extensions.enabled in config.yaml and the image server offers its tools (generate_video, extend_video,
+# video_to_gif) on its own MCP address.
+name: kandinsky6
+title: Kandinsky 6 Lite video (4-bit)
+description: >-
+  Makes 5-20 second videos with sound from a text description or from an image (generate_video), continues videos
+  (extend_video), and makes transparent animations and GIFs. Needs an NVIDIA GPU with 8 GB or more and about 16 GB
+  more Docker memory; downloads about 13 GB once. About 1-3 minutes per 5 seconds of video on a consumer GPU.
+needs: nvidia
+download_gb: 13
+url: http://imagegen-kandinsky6:5010/mcp   # on the private imagegen-ext network
+health: http://imagegen-kandinsky6:5010/health
+kind: video                           # gallery type of its results
+estimate_seconds: 150                 # rough time of one 5 s clip on a 12 GB GPU, for queue estimates

@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 from mcp.server.apps import Apps
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from PIL import Image
@@ -34,6 +35,7 @@ from .config import Config
 from .imaging import ImageInputError
 from .jobs import Job
 from .sdserver import EngineError
+from .extensions import Extensions, ExtResult
 from .service import (REQUEST_BASE_URL, ImageService, OpResult, ServiceUnavailable, base_url_from_headers,
                       servable)
 
@@ -402,6 +404,27 @@ def _ordinal(n: int) -> str:
     return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
 
 
+class ProxyTool(Tool):
+    """A tool that an extension provides: its schema comes from the extension, and the call is forwarded."""
+
+    async def run(self, arguments, context, convert_result: bool = False):
+        return await self.fn(arguments or {}, context)
+
+
+def _proxy_tool(spec: dict, forward) -> ProxyTool:
+    async def _unused() -> CallToolResult:  # lends ProxyTool the argument metadata; no output schema, like the
+        raise NotImplementedError       # built-in tools (clients check replies against an output schema)
+
+    base = Tool.from_function(_unused, name=spec["name"], description=spec.get("description") or "")
+    annotations = spec.get("annotations")
+    return ProxyTool.model_construct(
+        **{**dict(base), "fn": forward, "name": spec["name"], "title": spec.get("title"),
+           "description": spec.get("description") or "",
+           "parameters": spec.get("inputSchema") or {"type": "object", "properties": {}},
+           "annotations": ToolAnnotations.model_validate(annotations) if annotations else None,
+           "meta": None, "is_async": True, "context_kwarg": None})
+
+
 def create_server(service: ImageService) -> MCPServer:
     cfg: Config = service.cfg
     guide = _guide(cfg)
@@ -430,6 +453,8 @@ def create_server(service: ImageService) -> MCPServer:
                 "for the job). Do NOT re-render the image again."))], structured_content=st)
         if job.status != "completed":
             return _error(job.error or f"job {job.status}")
+        if isinstance(job.result, ExtResult):
+            return CallToolResult(content=list(job.result.reply.content), structured_content=st)
         # Small previews only (the viewer shows them inline; the links have the full files), built off the event loop
         # once per job. Not marked delivered: the model may still fetch the result with get_job.
         if job.viewer_previews is None:
@@ -638,6 +663,12 @@ def create_server(service: ImageService) -> MCPServer:
         """The finished job's reply. share: this job's part of the inline image budget when one reply carries several
         jobs (all images of one reply together stay under the client's message limit)."""
         job.announced = True
+        if job.status == "completed" and isinstance(job.result, ExtResult):
+            r = CallToolResult(content=list(job.result.reply.content),
+                               structured_content={**(job.result.reply.structured_content or {}), "job_id": job.id,
+                                                   "status": "completed"})
+            job.delivered = True
+            return r
         if job.status == "completed":
             cap = _uint(_header(ctx, INLINE_MAX_HEADER))
             total = max(10_000, min(cap, 64 * 1024 * 1024)) if cap is not None else cfg.outputs.inline_max_bytes
@@ -976,7 +1007,57 @@ def create_server(service: ImageService) -> MCPServer:
     async def server_status() -> dict:
         st = service.status()
         st["running_jobs"] = [j.summary() for j in service.jobs.jobs.values() if j.status == "running"]
+        if extensions.items:
+            st["extensions"] = extensions.status()
+            st["max_jobs"] = extensions.max_jobs
         return st
+
+    # ------------------------------------------------------------------ extensions
+    # Installed extensions (config.yaml extensions.enabled) run in their own containers; their tools are offered
+    # here, and each call runs as a job like an image (get_job, cancel_job). Built-in tool names always win.
+    extensions = Extensions(cfg, service)
+    service.extensions = extensions
+    builtin = {t.name for t in mcp._tool_manager.list_tools()}
+
+    def _register(ext) -> None:
+        for spec in ext.tools:
+            name = spec.get("name") or ""
+            if not name or name in builtin:
+                if name:
+                    log.warning("extension %s: tool %s has the name of a built-in tool; not offered", ext.name, name)
+                continue
+
+            async def forward(arguments: dict, context: Context, ext=ext, name=name) -> CallToolResult:
+                spec_now = next((t for t in ext.tools if t.get("name") == name), None)
+                if spec_now is None:
+                    return _error(f"the {ext.title} extension no longer offers {name}")
+
+                async def factory(progress):
+                    return await extensions.run(ext, spec_now, arguments, progress)
+
+                detail = " ".join(f"{k}={str(v)[:40]}" for k, v in arguments.items() if k != "prompt")
+                return await _start(name, factory, context, {"tool": name, **arguments}, detail,
+                                    require_engine=False)
+
+            mcp._tool_manager._tools[name] = _proxy_tool(spec, forward)
+
+    for ext in extensions.items:
+        _register(ext)  # from the last known tool list, so they are offered while the extension starts
+
+    async def _watch_extensions() -> None:
+        """Fetch each extension's tool list until it answers, then check it every few minutes."""
+        while extensions.items:
+            for ext in extensions.items:
+                was = ext.online
+                if await extensions.refresh(ext):
+                    _register(ext)
+                    if not was:
+                        log.info("extension %s online: %s", ext.name, ", ".join(t.get("name", "") for t in ext.tools))
+                elif was:
+                    log.warning("extension %s went offline: %s", ext.name, ext.error)
+            await asyncio.sleep(300 if all(e.online for e in extensions.items) else 15)
+
+    service.background.append(_watch_extensions)
 
     # ------------------------------------------------------------------ HTTP routes
     outputs_root = Path(cfg.outputs_dir).resolve()
@@ -1082,6 +1163,9 @@ def create_server(service: ImageService) -> MCPServer:
     async def api_status(request: Request) -> Response:
         st = service.status()
         st["running_jobs"] = [j.summary() for j in service.jobs.jobs.values() if j.status == "running"]
+        if service.extensions is not None and service.extensions.items:
+            st["extensions"] = service.extensions.status()
+            st["max_jobs"] = service.extensions.max_jobs
         return JSONResponse(st)
 
     @mcp.custom_route("/api/images", methods=["GET"], include_in_schema=False)

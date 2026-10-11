@@ -27,18 +27,39 @@ log = logging.getLogger("imagegen.library")
 TRASH, THUMBS, META = ".trash", ".thumbs", ".meta.jsonl"
 TRASH_INDEX = ".index.json"  # inside .trash: original path -> when it was deleted
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+VIDEO_SUFFIXES = (".mp4", ".webm")  # from the video extension (WebM: transparent)
+POSTERS = ".posters"  # a video's thumbnail: .posters/<the video's path>.webp (written by the video extension)
 # The first word of a result's file name is the kind of result (see ImageService._save).
 KINDS = {"image": "Generated", "edit": "Edit", "transparent": "Transparent", "tile": "Tile", "panorama": "Panorama",
          "upscaled": "Upscaled", "unwatermarked": "Watermark removed", "cutout": "Background removed",
-         "vector": "SVG", "upload": "Upload"}
+         "vector": "SVG", "video": "Video", "gif": "GIF", "anim": "Animation", "upload": "Upload"}
 THUMB_SIZES = (256, 512)
 MAX_FILES_PER_REQUEST = 5000
 
 
 def listed(rel: str) -> bool:
-    """An image file outside hidden folders: what the library lists and the /outputs route serves."""
+    """An image or video file outside hidden folders: what the library lists and the /outputs route serves."""
     parts = rel.replace("\\", "/").split("/")
-    return not any(p.startswith(".") or not p for p in parts) and Path(parts[-1]).suffix.lower() in IMAGE_SUFFIXES
+    return (not any(p.startswith(".") or not p for p in parts)
+            and Path(parts[-1]).suffix.lower() in IMAGE_SUFFIXES + VIDEO_SUFFIXES)
+
+
+def is_video(rel: str) -> bool:
+    return Path(rel).suffix.lower() in VIDEO_SUFFIXES
+
+
+def poster_of(rel: str) -> str:
+    """The poster image of a video (served, never listed)."""
+    return f"{POSTERS}/{rel[: -len(Path(rel).suffix)]}.webp"
+
+
+def servable(rel: str) -> bool:
+    """What the /outputs route serves: listed files, plus video posters."""
+    rel = rel.replace("\\", "/")
+    if rel.startswith(POSTERS + "/"):
+        inner = rel[len(POSTERS) + 1:]
+        return listed(inner) and Path(inner).suffix.lower() == ".webp"
+    return listed(rel)
 
 
 def kind_of(rel: str) -> str:
@@ -78,6 +99,8 @@ class Library:
             return hit[2:]
         w = h = None
         sphere = False
+        if is_video(rel.lstrip("~")):
+            p = self.root / poster_of(rel.lstrip("~"))  # same size as the video
         try:
             with Image.open(p) as im:
                 w, h = im.size
@@ -104,7 +127,10 @@ class Library:
             svg = p.with_suffix(".svg")
             out.append({"file": rel, "folder": folder, "name": p.name, "kind": kind_of(rel), "bytes": st.st_size,
                         "modified": int(st.st_mtime * 1000), "width": w, "height": h, "panorama": sphere,
-                        "svg": rel[: -len(p.suffix)] + ".svg" if svg.is_file() else None})
+                        "svg": rel[: -len(p.suffix)] + ".svg" if svg.is_file() else None,
+                        **({"video": True,
+                            "poster": poster_of(rel) if (self.root / poster_of(rel)).is_file() else None}
+                           if is_video(rel) else {})})
         return out
 
     def items(self) -> list[dict]:
@@ -140,8 +166,12 @@ class Library:
         images = getattr(result, "images", None)
         if not images:
             return
-        info = {k: v for k, v in (getattr(result, "info", None) or {}).items() if isinstance(v, (str, int, float, bool))}
-        lines = [json.dumps({"file": s.filename, "tool": tool, "info": info, "time": int(time.time())},
+        def settings(s) -> dict:  # a file's own settings if it has them (video variations), else the result's
+            own = getattr(s, "info", None) if isinstance(getattr(s, "info", None), dict) else None
+            return {k: v for k, v in (own or getattr(result, "info", None) or {}).items()
+                    if isinstance(v, (str, int, float, bool))}
+
+        lines = [json.dumps({"file": s.filename, "tool": tool, "info": settings(s), "time": int(time.time())},
                             ensure_ascii=False) for s in images if getattr(s, "filename", None)]
         if not lines:
             return
@@ -265,6 +295,8 @@ class Library:
                     continue
                 p.unlink(missing_ok=True)
                 p.with_suffix(".svg").unlink(missing_ok=True)
+                if is_video(rel):
+                    (self.root / poster_of(rel)).unlink(missing_ok=True)
                 index.pop(rel, None)
                 n += 1
             self._save_index(index)
@@ -285,6 +317,10 @@ class Library:
         p = self.path(rel, trash=trash)
         if p is None:
             return None
+        if is_video(rel):
+            p = self.root / poster_of(rel)  # a video's thumbnail is made from its poster
+            if not p.is_file():
+                return None
         st = p.stat()
         key = hashlib.sha1(f"{'~' if trash else ''}{rel}|{st.st_mtime_ns}|{st.st_size}|{size}".encode()).hexdigest()
         cached = self.root / THUMBS / key[:2] / f"{key}.webp"
