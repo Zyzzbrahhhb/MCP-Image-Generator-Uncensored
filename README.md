@@ -1,10 +1,11 @@
-<a href="#quick-start"><img src="docs/images/banner.webp" width="100%" alt="MCP Image Generator: make and edit images on your own GPU, from any MCP client. Examples: a lighthouse photo, a travel poster with text, a rocket icon and a pelican riding a bicycle"></a>
+<a href="#quick-start"><img src="docs/images/banner.webp" width="100%" alt="MCP Image Generator: make and edit images and videos on your own GPU, from any MCP client. Runs on 4 GB of VRAM (images; video needs 8 GB), with multi-GPU support. Examples: a lighthouse with crashing waves, a travel poster with text, an animated dragon on a transparent background and a snowy cabin video"></a>
 
 ## Make your own `<insert-image-here>`
 
-A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that makes and edits images with
-**Qwen-Image-2.1** on your own computer. Ask for an image in VS Code, Cursor, Claude Code, LM Studio or any other MCP
-client on your network, and it appears in the chat.
+A self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that makes and edits images and
+videos on your own computer: images with **Qwen-Image-2.1**, videos with **Kandinsky 6** (optional). Ask for an image
+or a video in VS Code, Cursor, Claude Code, LM Studio or any other MCP client on your network, and it appears in the
+chat.
 
 > *Your GPU, your images. No cloud, no account, no content filter.*
 
@@ -18,6 +19,8 @@ client on your network, and it appears in the chat.
 * [Upscale](#make-your-own-upscale)
 * [Watermark removal](#make-your-own-watermark-removal)
 * [SVG](#make-your-own-svg)
+* [Video](#make-your-own-video), [Animation](#make-your-own-animation) and [GIF](#make-your-own-gif) (optional
+  [video extension](#video-extension))
 
 - **Easy to run.** Install Docker, then run `start.cmd` (Windows) or `./start.sh` (Linux). Press Enter at each
   question. The script finds your GPU, picks the model, downloads it and starts the server.
@@ -32,7 +35,9 @@ client on your network, and it appears in the chat.
 ## Gallery
 
 The Non-Turbo model made these images with its default quality settings. Turbo made the restoration example, the love
-letter, the menu and the image to SVG sources. The prompts are in the [table below](#prompts-and-settings).
+letter, the menu, the newer transparent images and the sources for the SVGs and animations. The
+[video extension](#video-extension) made the videos, animations and GIFs. The prompts are in the
+[table below](#prompts-and-settings).
 
 #### Make your own `Text to image`
 
@@ -41,8 +46,8 @@ refuse.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/text-to-image.webp" alt="A lighthouse on a rocky coast at sunset"></td>
-<td width="50%"><img src="docs/images/character.webp" alt="Iron Man standing on a rooftop at night"></td>
+<td><img src="docs/images/text-to-image.webp" height="300" alt="A lighthouse on a rocky coast at sunset"></td>
+<td><img src="docs/images/character.webp" height="300" alt="Iron Man standing on a rooftop at night"></td>
 </tr>
 </table>
 
@@ -52,8 +57,8 @@ Change, add or remove things, restyle, or combine up to 10 images. Here the ligh
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/text-to-image.webp" alt="A lighthouse on a rocky coast at sunset"><br>Before</td>
-<td width="50%"><img src="docs/images/edit-after.webp" alt="The same scene edited to a snowy winter night"><br>After <code>edit_image</code></td>
+<td><img src="docs/images/text-to-image.webp" height="220" alt="A lighthouse on a rocky coast at sunset"><br>Before</td>
+<td><img src="docs/images/edit-after.webp" height="220" alt="The same scene edited to a snowy winter night"><br>After <code>edit_image</code></td>
 </tr>
 </table>
 
@@ -64,9 +69,9 @@ is made up, damage included.
 
 <table>
 <tr>
-<td width="33%"><img src="docs/images/restore-before.webp" alt="A badly damaged old black and white photo of a couple: the faces cracked, stained and peeling, with torn corners and mold"><br>Before</td>
-<td width="33%"><img src="docs/images/restore-after.webp" alt="The same photo restored: clean, sharp, black and white"><br>Restored</td>
-<td width="33%"><img src="docs/images/restore-color.webp" alt="The same photo restored and colorized"><br>Restored and colorized</td>
+<td><img src="docs/images/restore-before.webp" height="300" alt="A badly damaged old black and white photo of a couple: the faces cracked, stained and peeling, with torn corners and mold"><br>Before</td>
+<td><img src="docs/images/restore-after.webp" height="300" alt="The same photo restored: clean, sharp, black and white"><br>Restored</td>
+<td><img src="docs/images/restore-color.webp" height="300" alt="The same photo restored and colorized"><br>Restored and colorized</td>
 </tr>
 </table>
 
@@ -76,20 +81,22 @@ Text in quotes in the prompt is written as given.
 
 <table>
 <tr>
-<td width="33%"><img src="docs/images/text-rendering.webp" alt="A vintage travel poster that reads SEE THE ALPS"></td>
-<td width="33%"><img src="docs/images/text-letter.webp" alt="A close-up of a handwritten love letter: My dearest Clara, I count the hours until I see you again. Forever yours, Thomas"></td>
-<td width="33%"><img src="docs/images/text-menu.webp" alt="A cafe chalkboard menu: Today's menu, Espresso 2.50, Cappuccino 3.75, Croissant 3.00, Apple pie 4.25"></td>
+<td><img src="docs/images/text-rendering.webp" height="300" alt="A vintage travel poster that reads SEE THE ALPS"></td>
+<td><img src="docs/images/text-letter.webp" height="300" alt="A close-up of a handwritten love letter: My dearest Clara, I count the hours until I see you again. Forever yours, Thomas"></td>
+<td><img src="docs/images/text-menu.webp" height="300" alt="A cafe chalkboard menu: Today's menu, Espresso 2.50, Cappuccino 3.75, Croissant 3.00, Apple pie 4.25"></td>
 </tr>
 </table>
 
 #### Make your own `Transparent PNG`
 
-A transparent background straight from the prompt, or `remove_background` on any image.
+A transparent background straight from the prompt, or `remove_background` on any image. Hair, petals and soft edges
+stay clean.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/icon-transparent.webp" alt="A cartoon rocket icon on a transparent background"></td>
-<td width="50%"><img src="docs/images/transparent.webp" alt="A red fox on a transparent background"></td>
+<td><img src="docs/images/transparent.webp" height="260" alt="A woman with long curly red hair on a transparent background"></td>
+<td><img src="docs/images/transparent-sneakers.webp" height="260" alt="A pair of running sneakers floating on a transparent background"></td>
+<td><img src="docs/images/transparent-bouquet.webp" height="260" alt="A bouquet of wildflowers and roses on a transparent background"></td>
 </tr>
 </table>
 
@@ -99,31 +106,31 @@ Each tile (top) repeats with no seams (bottom, 3x3). Edits of a tile stay seamle
 
 <table>
 <tr>
-<td width="33%"><img src="docs/images/texture-brick.webp" alt="A red brick wall tile"></td>
-<td width="33%"><img src="docs/images/texture-wood.webp" alt="An oak wood planks tile"></td>
-<td width="33%"><img src="docs/images/texture-ceramic.webp" alt="A blue and white ceramic tile"></td>
+<td><img src="docs/images/texture-brick.webp" height="220" alt="A red brick wall tile"></td>
+<td><img src="docs/images/texture-wood.webp" height="220" alt="An oak wood planks tile"></td>
+<td><img src="docs/images/texture-ceramic.webp" height="220" alt="A blue and white ceramic tile"></td>
 </tr>
 <tr>
-<td><img src="docs/images/texture-brick-3x3.webp" alt="The brick tile repeated three by three"></td>
-<td><img src="docs/images/texture-wood-3x3.webp" alt="The wood tile repeated three by three"></td>
-<td><img src="docs/images/texture-ceramic-3x3.webp" alt="The ceramic tile repeated three by three"></td>
+<td><img src="docs/images/texture-brick-3x3.webp" height="220" alt="The brick tile repeated three by three"></td>
+<td><img src="docs/images/texture-wood-3x3.webp" height="220" alt="The wood tile repeated three by three"></td>
+<td><img src="docs/images/texture-ceramic-3x3.webp" height="220" alt="The ceramic tile repeated three by three"></td>
 </tr>
 </table>
 
-<img src="docs/images/tile-maps.webp" width="100%" alt="A stone tile, its height map and its normal map, each repeated two by two"><br>
+<img src="docs/images/tile-maps.webp" width="700" alt="A stone tile, its height map and its normal map, each repeated two by two"><br>
 A stone tile, then a height map and a normal map made from it with an edit, each repeated 2x2.
 
 #### Make your own `360 panorama`
 
 A full 360 view, with a link to the built-in 360 viewer in the result. `image` turns a photo into a panorama.
 
-<img src="docs/images/panorama.webp" width="100%" alt="An equirectangular 360 panorama of a mountain meadow">
+<img src="docs/images/panorama.webp" width="700" alt="An equirectangular 360 panorama of a mountain meadow">
 
 #### Make your own `Upscale`
 
 2x or 4x, up to 8192 px per side. Left: plain enlargement. Right: the upscaler.
 
-<img src="docs/images/upscale-detail.webp" width="100%" alt="A detail enlarged four times: plain resize on the left, AI upscaler on the right">
+<img src="docs/images/upscale-detail.webp" width="700" alt="A detail enlarged four times: plain resize on the left, AI upscaler on the right">
 
 #### Make your own `Watermark removal`
 
@@ -131,38 +138,87 @@ Watermarks, logos and overlaid text go; the rest of the image stays as it was.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/watermark-before.webp" alt="The lighthouse photo covered with a tiled SAMPLE watermark and a corner badge"><br>Before (a test watermark added to the lighthouse)</td>
-<td width="50%"><img src="docs/images/watermark-after.webp" alt="The same photo with the watermark removed"><br>After <code>remove_watermark</code></td>
+<td><img src="docs/images/watermark-before.webp" height="220" alt="The lighthouse photo covered with a tiled SAMPLE watermark and a corner badge"><br>Before (a test watermark added to the lighthouse)</td>
+<td><img src="docs/images/watermark-after.webp" height="220" alt="The same photo with the watermark removed"><br>After <code>remove_watermark</code></td>
 </tr>
 </table>
 
 #### Make your own `SVG`
 
-The pelican riding a bicycle, the classic SVG test for AI models: `generate_image`, then `vectorize_image`. On the
-right is the real SVG file (94 KB), as your browser draws it.
+`generate_image`, then `vectorize_image`: a real SVG file, as your browser draws it. Logos, icons, lettering and line
+art stay sharp at any size, and you can edit and recolor them in any vector app.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/pelican.webp" alt="A pelican riding a bicycle, flat illustration (PNG)"><br>PNG</td>
-<td width="50%"><img src="docs/images/pelican.svg" alt="The same pelican riding a bicycle as an SVG vector file"><br>SVG</td>
+<td><img src="docs/images/knife.webp" height="220" alt="A combat knife (PNG)"><br>PNG</td>
+<td><img src="docs/images/knife.svg" height="220" alt="The same knife as an SVG vector file"><br>SVG (600 KB)</td>
 </tr>
 </table>
 
-Logos, icons, line art and lettering stay sharp at any size. Each pair is a zoomed detail: the PNG on the left, the
-SVG on the right.
+<table>
+<tr>
+<td><img src="docs/images/svg-badge.svg" height="260" alt="A MOUNTAIN COFFEE CO. badge logo as an SVG"><br>SVG, 2 colors</td>
+<td><img src="docs/images/svg-tiger.svg" height="260" alt="A roaring tiger head mascot logo as an SVG"><br>SVG, 4 colors</td>
+</tr>
+</table>
+
+Each pair is a zoomed detail: the PNG on the left, the SVG on the right.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/vectorize.webp" alt="A detail of the rocket icon zoomed 4x: the PNG on the left, its SVG on the right"><br>
-Icon, 4x</td>
-<td width="50%"><img src="docs/images/vectorize-logo.webp" alt="A detail of an eagle mascot logo zoomed 4x: the PNG on the left, its SVG on the right"><br>
+<td><img src="docs/images/vectorize-tiger.webp" width="400" alt="A detail of the tiger mascot zoomed 4x: the PNG on the left, its SVG on the right"><br>
+Mascot, 4x</td>
+<td><img src="docs/images/vectorize-logo.webp" width="400" alt="A detail of an eagle mascot logo zoomed 4x: the PNG on the left, its SVG on the right"><br>
 Logo, 4x</td>
 </tr>
 <tr>
-<td><img src="docs/images/vectorize-lineart.webp" alt="A detail of a tattoo rose line drawing zoomed 4x: the PNG on the left, its SVG on the right"><br>
+<td><img src="docs/images/vectorize-lineart.webp" width="400" alt="A detail of a tattoo rose line drawing zoomed 4x: the PNG on the left, its SVG on the right"><br>
 Line art, 4x</td>
-<td><img src="docs/images/vectorize-text.webp" alt="A detail of a coffee shop logo's lettering zoomed 3x: the PNG on the left, its SVG on the right"><br>
+<td><img src="docs/images/vectorize-text.webp" width="400" alt="A detail of a coffee shop logo's lettering zoomed 3x: the PNG on the left, its SVG on the right"><br>
 Lettering, 3x</td>
+</tr>
+</table>
+
+#### Make your own `Video`
+
+5 to 20 seconds with sound, from text or from an image (here the 360 panorama). Click a preview for the full video
+with sound. Needs the optional [video extension](#video-extension).
+
+<table>
+<tr>
+<td><a href="docs/videos/cabin.mp4"><img src="docs/images/video-cabin.webp" height="150" alt="A snowy cabin in a pine forest at night, the camera slowly pushes in"></a><br>Text to video</td>
+<td><a href="docs/videos/astronaut.mp4"><img src="docs/images/video-astronaut.webp" height="150" alt="An astronaut walks across red dunes on Mars"></a><br>Text to video</td>
+<td><a href="docs/videos/meadow.mp4"><img src="docs/images/video-meadow.webp" height="150" alt="The mountain meadow from the 360 panorama, the camera pans to the right"></a><br>Image to video</td>
+</tr>
+</table>
+
+#### Make your own `Animation`
+
+Transparent animations for games, apps and stickers: start from a transparent image and add `transparent: true`.
+The result is a WebM with transparency and an animated WebP like these, which play over any background.
+
+<table>
+<tr>
+<td><a href="docs/videos/anim-dragon-202.webm"><img src="docs/images/anim-dragon-202.webp" height="180" alt="A cartoon baby dragon flaps its wings and puffs a small flame, on a transparent background"></a></td>
+<td><a href="docs/videos/anim-chest-202.webm"><img src="docs/images/anim-chest-202.webp" height="180" alt="A treasure chest opens and golden light pours out, on a transparent background"></a></td>
+<td><a href="docs/videos/anim-crystal-202.webm"><img src="docs/images/anim-crystal-202.webp" height="180" alt="A purple magic crystal floats and glows, on a transparent background"></a></td>
+<td><a href="docs/videos/anim-torch-101.webm"><img src="docs/images/anim-torch-101.webp" height="180" alt="A wall torch with a flickering flame and rising sparks, on a transparent background"></a></td>
+</tr>
+<tr>
+<td><a href="docs/videos/anim-slime-202.webm"><img src="docs/images/anim-slime-202.webp" height="180" alt="A blue slime monster bounces, on a transparent background"></a></td>
+<td><a href="docs/videos/cauldron.webm"><img src="docs/images/video-cauldron.webp" height="180" alt="A witch's cauldron bubbles with rising green steam, on a transparent background"></a></td>
+<td><a href="docs/videos/woman.webm"><img src="docs/images/video-woman.webp" height="180" alt="The woman with long curly red hair blinks, on a transparent background"></a></td>
+</tr>
+</table>
+
+#### Make your own `GIF`
+
+`gif: true` on a new video, or `video_to_gif` on any video. A transparent video gives a transparent GIF.
+
+<table>
+<tr>
+<td><img src="docs/images/gif-cabin.gif" height="180" alt="The snowy cabin video as an animated GIF"><br>From a video</td>
+<td><img src="docs/images/gif-slime.gif" height="180" alt="The slime animation as a transparent animated GIF"><br>From a transparent animation</td>
 </tr>
 </table>
 
@@ -179,8 +235,9 @@ Lettering, 3x</td>
 | Love letter | `generate_image` with the Turbo model, 864x1152, seed 19 | A close-up photo of a handwritten love letter on cream paper, elegant flowing cursive in dark blue ink that reads "My dearest Clara," then "I count the hours until I see you again." then "Forever yours, Thomas", a dried red rose lying on the corner of the page, soft warm window light, shallow depth of field, photorealistic |
 | Chalkboard menu | `generate_image` with the Turbo model, 864x1152, seed 8 | A cafe chalkboard menu hanging on a brick wall, neat hand-lettered white chalk with small colored chalk drawings of a coffee cup and leaves, the title reads "TODAY'S MENU", below it four lines that read "Espresso 2.50", "Cappuccino 3.75", "Croissant 3.00" and "Apple pie 4.25", photorealistic |
 | Uncensored | `generate_image`, 768x1024, seed 505 | Iron Man in his red and gold armor standing on a rooftop at night, city lights below, cinematic lighting, photorealistic |
-| Icon | `generate_image`, 1024x1024, `transparent: true`, seed 404 | A cute cartoon rocket ship, flat vector illustration, bold outlines, bright colors |
-| Transparent | `generate_image`, 1024x1024, `transparent: true`, seed 11 | A red fox sitting, full body, soft studio light |
+| Transparent | `generate_image` with the Turbo model, 896x1184, `transparent: true`, seed 7 | A young woman with very long, flowing, curly red hair, waist up, smiling, wearing a white shirt, soft studio light, photorealistic |
+| Sneakers | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 21 | A pair of white and orange running sneakers floating in mid-air, one slightly above the other, dynamic angle, product photography, studio light, sharp detail |
+| Bouquet | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 24 | A colorful bouquet of wildflowers and roses tied with a ribbon, full bouquet in view, photorealistic, soft light |
 | 360 panorama | `generate_panorama`, 2048x1024, seed 2026 | A mountain meadow with wildflowers, a stone cabin, a wooden boardwalk and a lake |
 | Brick | `generate_image`, 512x512, `tileable: true`, seed 111 | Large red bricks with light grey mortar, close-up, photorealistic, even lighting |
 | Wood | `generate_image`, 512x512, `tileable: true`, seed 222 | Wide oak floor planks with visible wood grain and knots, top-down, natural light |
@@ -193,11 +250,24 @@ Lettering, 3x</td>
 | Old photo (for the restoration) | `generate_image` with the Turbo model, 896x1152, seed 27 | A severely damaged old black and white photograph from the 1940s: a young couple standing in front of a wooden farmhouse porch, the woman in a floral dress, the man in a hat and suspenders, framed from the knees up so their faces are large. Heavy damage over their faces: a deep crack runs straight across both faces, a brown water stain covers half of the woman's face, the emulsion has peeled off one side of the man's face and hat, scratches and dust over their eyes. Also torn missing corners, mold spots and heavy fading, scanned photo |
 | Restored | `edit_image` with the old photo, Turbo model, seed 5 | Restore this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, fix the faded contrast, keep it black and white. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
 | Restored and colorized | `edit_image` with the old photo, Turbo model, seed 5 | Restore and colorize this old photograph: remove every scratch, crease, stain, dust spot and the torn corner, fill in the missing parts, and add natural realistic colors. Keep the people, their faces, poses and clothes and the whole composition exactly the same |
-| Image to SVG | `vectorize_image` on the pelican, the icon, the mascot, the rose and the logo | - |
-| Pelican (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 42 | A pelican riding a bicycle, side view, full body, the pelican's feet on the pedals and its wings on the handlebars, flat vector illustration, bold simple shapes, thick dark outlines, solid colors, no gradients, no shadows, plain white background, centered |
+| Image to SVG | `vectorize_image` on the knife, the badge, the tiger, the mascot, the rose and the logo | - |
 | Mascot (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 105 | An esports mascot logo: a fierce eagle head, thick black outlines, flat colors in blue, yellow and white, flat vector art, solid colors, no gradients, no shadows, plain white background, centered |
 | Rose (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 121 | A tattoo flash design of a rose, black line art, clean bold lines, white background |
 | Coffee logo (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 102 | A coffee shop logo "BEAN THERE": a coffee cup with heart-shaped steam and the name below, brown, flat vector art, solid colors, no gradients, no shadows, plain white background, centered |
+| Knife (for the SVG) | `generate_image` with the Turbo model, an earlier image (its prompt was not kept) | - |
+| Coffee badge (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 32 | A retro badge logo for 'MOUNTAIN COFFEE CO.': a coffee cup in front of snowy mountains and sun rays inside a circle, the name written around the circle, two colors, dark brown and cream, flat vector art, no gradients, centered, plain white background |
+| Tiger (for the SVG) | `generate_image` with the Turbo model, 1024x1024, seed 34 | An esports mascot logo: a roaring tiger head, thick black outlines, flat colors in orange, white and black, flat vector art, no gradients, no shadows, plain white background, centered |
+| Cabin | `generate_video`, 16:9, seed 202 | Wide shot of a small wooden cabin in a snowy pine forest at night, its windows glowing warm orange. The camera pushes in slowly toward the cabin. Snow falls gently from the sky, and gray smoke rises from the stone chimney and drifts to the right. The pine trees and the cabin stay still. Moonlight, cozy, realistic. Audio: soft wind, quietly a crackling fire. No dialogue, no music. |
+| Astronaut | `generate_video`, 16:9, seed 101 | Wide shot of an astronaut in a white spacesuit walking slowly across red sand dunes on Mars, toward the camera. The camera is static. Each step kicks up small clouds of red dust that drift to the left. A pale sun is low in the dusty orange sky behind the astronaut. Realistic, cinematic. Audio: loudly, slow breathing inside the helmet; crunching footsteps; a thin wind. No dialogue, no music. |
+| Meadow | `generate_video` with the 360 panorama, 16:9, seed 202 | A mountain meadow with wildflowers, a stone cabin, a wooden boardwalk and a lake. The camera pans slowly to the right across the meadow. The wildflowers and the grass sway in a light breeze, small clouds drift slowly over the mountains, and the lake ripples. Bright summer daylight, realistic. Audio: a light breeze, bees, birdsong. No dialogue, no music. |
+| Dragon | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 11; then `generate_video` with it, `transparent: true`, `sound: false`, seed 202 | Image: A cute cartoon baby dragon sitting, purple scales, small orange wings, big friendly eyes, little horns, game asset, stylized hand-painted 3D look, soft cel shading, bold readable shapes, full object in view, centered<br>Video: Full view of the cute cartoon baby dragon sitting. The camera is static. It flaps its small orange wings twice, blinks, then opens its mouth and puffs a small burst of orange flame upward that quickly fades. It stays sitting in place at the same size. |
+| Treasure chest | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 14; then `generate_video` with it, `transparent: true`, `sound: false`, seed 202 | Image: A closed wooden treasure chest with gold trim and a gold lock, warm golden light leaking from the gap under the lid, three-quarter view, game asset, stylized hand-painted 3D look, soft cel shading, bold readable shapes, full object in view, centered<br>Video: Three-quarter view of the wooden treasure chest. The camera is static. The lid slowly opens upward and bright golden light pours out of the chest, with small golden sparkles rising from inside. The chest stays in place at the same size. |
+| Crystal | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 16; then `generate_video` with it, `transparent: true`, `sound: false`, seed 202 | Image: A glowing purple magic crystal with sharp facets, floating, small sparkles around it, game asset, stylized hand-painted 3D look, soft cel shading, bold readable shapes, full object in view, centered<br>Video: Full view of the purple magic crystal. The camera is static. The crystal floats and bobs gently up and down in place, slowly rotating, its glow pulsing brighter and dimmer, while small sparkles twinkle around it. |
+| Torch | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 13; then `generate_video` with it, `transparent: true`, `sound: false`, seed 101 | Image: A medieval wall torch, a wooden handle wrapped in cloth with an iron bracket, a bright orange flame on top, game asset, stylized hand-painted 3D look, soft cel shading, bold readable shapes, full object in view, centered<br>Video: Full view of the wall torch. The camera is static. The orange flame on top flickers and dances, growing taller and smaller, and small glowing sparks float up and fade. The wooden handle and the iron bracket stay still. |
+| Slime | `generate_image` with the Turbo model, 1024x1024, `transparent: true`, seed 15; then `generate_video` with it, `transparent: true`, `sound: false`, seed 202 | Image: A cute glossy blue slime monster with big eyes and a small smile, round jelly body, game asset, stylized hand-painted 3D look, soft cel shading, bold readable shapes, full object in view, centered<br>Video: Full view of the cute blue slime monster. The camera is static. It bounces up and down in place, squashing flat when it lands and stretching tall when it rises, wobbling like jelly, and it blinks happily. It stays centered at the same size. |
+| Cauldron | `generate_image` with the Turbo model, 512x512, `transparent: true`, seed 1779312852; then `generate_video` with it, `transparent: true`, `sound: false`, seed 1835987638 | Image: Game UI asset, isolated icon of a witch's brewing bowl: a squat black iron cauldron-style bowl with three short claw feet, a thick rolled rim, a single curved handle on the right side, weathered pitted metal with dull green-bronze patina highlights. Filled to the brim with glowing toxic green potion whose surface is covered in round bubbles of different sizes, some bursting into small droplet sprays. Three wispy curls of translucent pale-green steam rising from the surface, drifting upward and thinning out at the top. Stylized hand-painted video game art, thick readable shapes, soft cel shading, crisp rim light from the glowing liquid, slight top-down three-quarter view, centered composition. Double-quoted text: none.<br>Video: Camera completely static and locked off, wide shot matching the first frame exactly: the whole black iron cauldron bowl is visible and centered, including its round body, its rolled rim, the ring handle on the right and its three short claw feet at the bottom. Do not zoom, do not crop, do not pan, no camera movement at all. Only the liquid and steam move: round green bubbles slowly swell up to the surface and pop with tiny splashes, thin translucent green steam wisps curl upward and fade near the top, a few small droplets arc up and fall back, and the green glow pulses gently. Everything else stays exactly as in the first frame. |
+| Woman (animation) | `generate_video` with the transparent image above, `transparent: true`, `sound: false`, seed 77 | Medium close-up, waist-up portrait of the young woman with long curly red hair. The camera is static. She looks straight into the camera with a calm, gentle smile; she does not speak and her lips stay closed. She blinks slowly two times, about two seconds apart. Her head and shoulders stay still and she stays centered in the frame; a light breeze moves a few strands of her hair. |
+| GIFs | `video_to_gif` on the cabin video (`width: 320`, `fps: 8`) and on the slime WebM (`width: 320`, `fps: 10`) | - |
 
 Characters and brands shown belong to their owners.
 
@@ -273,13 +343,14 @@ Open `http://localhost:5005/` in a browser on your network.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/gallery.webp" alt="The web gallery: folders by day on the left, search, filters by type and sort at the top, and a grid of the server's images"></td>
-<td width="50%"><img src="docs/images/gallery-viewer.webp" alt="The gallery's viewer: an image full size, with its prompt, reference and settings on the right"></td>
+<td width="50%"><img src="docs/images/gallery.webp" alt="The web gallery: folders by day on the left, search, filters by type (including video, GIF and animation) and sort at the top, and a grid of the server's images, videos and transparent animations"></td>
+<td width="50%"><img src="docs/images/gallery-viewer.webp" alt="The gallery's viewer playing a video, with its prompt, reference and settings on the right"></td>
 </tr>
 </table>
 
-- Every image on the server, by folder and day. Search names and prompts, filter by type (generated, edit,
-  transparent, tile, panorama, upscaled, SVG, upload) and sort by date, name or size.
+- Every image and video on the server, by folder and day. Search names and prompts, filter by type (generated,
+  edit, transparent, tile, panorama, upscaled, SVG, video, GIF, animation, upload) and sort by date, name or size.
+  Videos play in the viewer.
 - Select many images (their check marks, Ctrl+click, Shift+click for a range, Ctrl+A), then download them as a zip
   or move them to the trash. Undo brings them back, and so does the trash until you empty it or the outputs cleanup
   removes old files (`outputs.keep_days`).
@@ -289,6 +360,8 @@ Open `http://localhost:5005/` in a browser on your network.
 To stop the page from deleting images, set `outputs.allow_delete: false` in `config.yaml`.
 
 ## Turbo or Non-Turbo
+
+The choice is yours during the setup.
 
 <img src="docs/images/turbo-vs-uncensored.webp" width="80%" alt="The same four prompts and seeds on an RTX 5090: Turbo (8 steps, CFG 1) took 4-10 s per image, Non-Turbo (40 steps, CFG 4) took 26-44 s">
 
@@ -495,6 +568,7 @@ Optional headers a client can send:
 | `get_job`, `cancel_job` | Get the result of, or cancel, a job that was still running |
 | `list_images`, `view_image` | Recent results and uploads, and a way for the model to look at one |
 | `server_status` | Model, GPU placement, download progress and running jobs |
+| `generate_video`, `extend_video`, `video_to_gif` | Video with sound from text or an image, longer videos from a short one, and animated GIFs. Only with the [video extension](#video-extension) |
 
 **Input images** can be a data URL or base64, an `http(s)` URL, a file name or link of an image this server
 made, or an image uploaded on the server's web page (`http://<host>:5005/upload`).
@@ -510,6 +584,24 @@ made, or an image uploaded on the server's web page (`http://<host>:5005/upload`
 - For edits, say what to change and add "keep everything else unchanged".
 - For tiles, describe a surface or pattern that fills the whole picture, e.g. "moss-covered cobblestones,
   top-down".
+
+## Video extension
+
+An optional extension makes **5 to 20 second videos with sound** from a text description or from an image, and
+transparent animations for games and UIs, and GIFs. It uses
+[Kandinsky 6 Lite](https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers) in a 4-bit version,
+runs in its own container in `extensions/kandinsky6/`, and its tools appear on the same MCP address as the image
+tools. The setup asks whether to install it. To uninstall it, run the setup again and answer no.
+
+Kandinsky 6 Lite is a small model (3 billion parameters). It does best with calm motion that needs no physics: idle
+loops, steam, flames, blinking, small gestures and slow camera moves. Fast action and things that collide or
+interact often go wrong.
+
+**In the works:** an extension for [MiniMax-H3](https://huggingface.co/MiniMaxAI/MiniMax-H3), a large video model (33
+billion parameters) that handles fast action and complex motion, for GPUs with more memory.
+
+See [Kandinsky 6 video](docs/kandinsky6.md) for the samples, the options, how to prompt, the token limits, and the
+speed and memory on different GPUs.
 
 ## Configuration
 
@@ -528,6 +620,7 @@ After a change, run the start script again and let it restart the server. The mo
 | `outputs.keep_days` | 7 | Delete old results after this many days (0 = never) |
 | `server.port` | 5005 | Port of the server |
 | `server.public_url` | empty | Address used in returned links, e.g. `http://192.168.1.50:5005` |
+| `extensions.enabled`, `extensions.max_jobs` | `[]`, `auto` | Installed extensions (the setup writes this), and how many GPU jobs run at once. See [Video extension](#video-extension) |
 
 `.env` (created from [`.env.example`](.env.example)) holds Docker settings such as `PUBLIC_URL`, `HF_TOKEN`
 (only needed if Hugging Face rate-limits your downloads) and the build options.
@@ -612,9 +705,17 @@ model files are downloaded from their original sources and keep their own licens
 | [Pannellum](https://pannellum.org) (the 360 viewer) | Matthew Petroff | MIT |
 | [VTracer](https://github.com/visioncortex/vtracer) (image to SVG) | visioncortex (Chris Tsang) | MIT |
 | [resvg](https://github.com/linebender/resvg), via [resvg-py](https://github.com/baseplate-admin/resvg-py) (SVG previews) | Yevhenii Reizner and contributors; baseplate-admin | Apache-2.0 or MIT; MIT |
+| [Kandinsky 6 Lite](https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers) video model (video extension) | Kandinsky Lab | MIT |
+| [4-bit Kandinsky 6 Lite](https://huggingface.co/WaveCut/Kandinsky-6.0-Lite-distill-5s-OrbitQuant-W4A4) and [OrbitQuant](https://github.com/iamwavecut/OrbitQuant) (video extension) | WaveCut | MIT and Apache-2.0 (weights); Apache-2.0 (code) |
+| [HunyuanVideo](https://github.com/Tencent-Hunyuan/HunyuanVideo) video VAE, part of Kandinsky 6 (video extension) | Tencent | Tencent Hunyuan Community License: **not licensed in the EU, the UK and South Korea** |
+| [MMAudio](https://github.com/hkchengrex/MMAudio) audio decoder, part of Kandinsky 6 (video extension) | Sony Research and contributors | CC BY-NC 4.0 (**non-commercial**) |
+| Qwen2.5-VL-7B (prompt encoder), CLIP, BigVGAN vocoder: parts of Kandinsky 6 (video extension) | Alibaba; OpenAI; NVIDIA | Apache-2.0; MIT; MIT |
+| [diffusers](https://github.com/huggingface/diffusers) (runs the video model) | Hugging Face | Apache-2.0 |
 
 The Qwen-Image-2.1 files allow non-commercial use only: read their license before using images commercially.
-Only remove watermarks from images you have the rights to edit. The `:gpu` Docker image is based on NVIDIA's
+The video extension uses parts with their own limits: the audio decoder allows non-commercial use only, and the
+video VAE's license does not cover the EU, the UK or South Korea. Read them before you install the extension there or
+use its videos commercially. Only remove watermarks from images you have the rights to edit. The `:gpu` Docker image is based on NVIDIA's
 CUDA image ([license](https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license)).
 
 Neither model has a built-in content filter. You are responsible for how you use it and what you make

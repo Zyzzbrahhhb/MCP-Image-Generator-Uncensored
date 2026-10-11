@@ -168,6 +168,35 @@ If a GPU may not have enough memory for its parts, the script warns you before `
 The setup changes only the device, the GPU settings, the model and `generation.prefix_cache_type`. Your other
 settings in `config.yaml` stay.
 
+### Optional extensions
+
+Then the setup offers the extensions in the `extensions` folder. Now there is one, the Kandinsky 6 video
+extension (see [Kandinsky 6 video](kandinsky6.md)). Enter keeps your current answer; the default is no.
+
+```
+Optional extension: Kandinsky 6 Lite video (4-bit)
+    Makes 5-20 second videos with sound from a text description or from an image (generate_video), continues
+    videos (extend_video), and makes transparent animations and GIFs. Needs an NVIDIA GPU with 8 GB or more and
+    about 16 GB more Docker memory; downloads about 13 GB once. About 1-3 minutes per 5 seconds of video on a
+    consumer GPU.
+
+Install this extension? [y/N]
+```
+
+With more than one GPU, it asks which GPU the video uses. The default is the largest GPU that the image model does
+not use. Then it shows its choice:
+
+```
+==> Video: GPU 2 (12 GB), mode stream.
+    It shares this GPU with the image model: one job runs at a time (a video waits for an image and the
+    other way round), and the image model is limited to 6 GB. About 2.5 minutes per 5 s of video.
+```
+
+- **Mode**: how the video model uses the GPU, set from its memory: `resident` (20 GB or more), `fast`,
+  `low-memory` (10-13 GB) or `stream` (8-9 GB, or a GPU of 12 GB or less that the image model also uses).
+- To remove the extension, run the setup again and answer `n`. The setup removes its container and its Docker
+  image, and asks before it deletes the downloaded files (about 13 GB).
+
 ### Step 4: Build, download, start
 
 ```
@@ -183,12 +212,46 @@ Status page: http://localhost:5005 (open it in a browser)
 ```
 
 - If the build or the download stops, run `start.cmd` again. Both continue where they stopped.
+- With the video extension, the start then builds it, downloads its models (first time only, about 13 GB) and
+  starts it:
+
+  ```
+  ==> Extension: Kandinsky 6 Lite video (4-bit)
+      Building its image (the first time takes several minutes)...
+      Downloading its models once (about 13 GB) and checking them...
+      Ready. Its tools are offered on the server's MCP address within a few seconds.
+  ```
 - Loading can take several minutes on the first start, or on a GPU with little memory. After one minute, the
   script shows `still loading: 1 min`, `2 min` and so on. On a GTX 1650 (4 GB), with the models already downloaded, the first start took 6.4 minutes: 2.6 minutes to
   check the model files on a hard disk, then 3.8 minutes to load.
 - Add the address to your AI app (your MCP client). See [Connect an MCP client](../README.md#connect-an-mcp-client).
 - The server runs in Docker, not in the window. You can close the window. Docker starts the server again after
   a restart of the computer, until you run `stop.cmd`.
+
+## Make a video
+
+With the video extension installed, ask your AI app for a video, as you ask for an image. The tools are on the same
+MCP address. A 5-second video takes about 1-3 minutes on a consumer GPU (40-60 s on an RTX 5090). Your AI app gets
+a job id at once and asks the server again until the video is ready. Then it shows a link and a poster image. The
+[web gallery](http://localhost:5005) plays every video.
+
+| You want | Ask your AI app | What it does |
+|---|---|---|
+| A video from a description | "Make a 5-second video of a snowy cabin at night, the camera slowly pushes in" | `generate_video` |
+| A picture brought to life | "Animate this photo: the waves crash on the rocks" (with the image) | `generate_video` with `image`: the picture is the first frame |
+| A transparent animation | "Make a transparent image of a cartoon dragon, then animate it flapping its wings" | `generate_image` with `transparent: true`, then `generate_video` with that image and `transparent: true` |
+| A GIF | "Make it a GIF" | `gif: true`, or `video_to_gif` on a video you have |
+| Several versions | "Make 3 versions" | `count: 3`: each version has the next seed |
+| A longer video | "Make it 15 seconds: first it walks, then it digs, then it jumps" | `seconds: 15` and `next_prompts`, or `extend_video` on a finished video |
+
+- **Write explicit prompts.** The model does what the prompt says and does not work out the rest. Say where things
+  are, which way each thing moves, what the camera does and what stays still. See
+  [How to prompt](kandinsky6.md#how-to-prompt).
+- **Keep the motion calm.** The model does best with motion that needs no physics: idle loops, steam, flames,
+  blinking, slow camera moves. Fast action often goes wrong.
+- **Transparent animations** start from an image with a transparent background, and the motion stays in place. The
+  result is a WebM with transparency and an animated WebP. See [Transparent videos](kandinsky6.md#transparent-videos).
+- **One GPU for images and video**: on a GPU of 12 GB or less, a video waits for an image job and the other way round.
 
 ## Later
 
@@ -251,7 +314,8 @@ Full log: open a terminal in the project folder and run `docker compose logs --t
 | `config.yaml` | Your settings. [`config.example.yaml`](../config.example.yaml) explains each one. |
 | `.env` | Docker settings, for example the build options. The port comes from `config.yaml`. |
 | `models` | The model files. |
-| `outputs` | Your images and uploads. **The server deletes files older than 7 days.** To keep them, set `outputs.keep_days: 0` in `config.yaml`. |
+| `outputs` | Your images, videos, GIFs and uploads. **The server deletes files older than 7 days.** To keep them, set `outputs.keep_days: 0` in `config.yaml`. |
 | `inputs` | Images that the tools can read by file name. |
+| `extensions/kandinsky6/models`, `extensions/kandinsky6/.env` | The video extension's model files (about 13 GB) and its settings for this computer (GPU, memory mode). |
 
 Updates do not change these files.
