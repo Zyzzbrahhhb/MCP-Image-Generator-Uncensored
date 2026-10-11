@@ -29,6 +29,7 @@ from . import vectorize as vectorizer
 from .config import Config
 from .devices import DevicePlan, build_device_plan
 from .jobs import JobManager
+from .library import Library, listed
 from .imaging import ImageInputError
 from .models import ModelStore
 from .schedule import official_sigmas, turbo_sigmas
@@ -108,14 +109,9 @@ class PreviewRegistry:
 UPSCALE_MAX_SIDE = 8192  # results stay within sd-server's /sdcpp/v1/upscale limit, per side
 PANORAMA_WRAP_PX = 32  # input columns copied from the opposite edge on each side when upscaling a 360 panorama
 SAVED_CACHE_BYTES = 2 * 1024 * 1024  # results up to this size stay in memory; larger ones are re-read from disk
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")  # files listed and served from outputs/
-
-
-def servable(rel: str) -> bool:
-    """Whether a path under outputs/ is listed and served: an image file outside hidden folders (.previews.json,
-    .stversions/ ...)."""
-    parts = rel.replace("\\", "/").split("/")
-    return not any(p.startswith(".") for p in parts) and Path(parts[-1]).suffix.lower() in IMAGE_SUFFIXES
+# Whether a path under outputs/ is listed and served: an image file outside hidden folders (.previews.json, .trash/,
+# .stversions/ ...). The web page's library uses the same rule.
+servable = listed
 
 
 def _is_sphere_file(path: Path) -> bool:
@@ -218,11 +214,19 @@ class ImageService:
         self.jobs_done = 0
         self.active_jobs = 0
         self._circular_failed = False  # set when sd-server ran a circular request without applying it
-        self.jobs = JobManager()
+        self.jobs = JobManager(on_result=lambda kind, result: self.library.record(kind, result))
         self.outputs = Path(cfg.outputs_dir)
+        self._library: Library | None = None
         self.previews = PreviewRegistry(self.outputs)
         self.loader = imaging.ImageLoader(self.outputs, max_bytes=cfg.server.max_request_mb * 1024 * 1024,
                                           original_for=self.previews.lookup)
+
+    @property
+    def library(self) -> Library:
+        """The web page's view of outputs/ (follows self.outputs, which tests point elsewhere)."""
+        if self._library is None or self._library.root != self.outputs.resolve():
+            self._library = Library(self.outputs)
+        return self._library
 
     # ------------------------------------------------------------ lifecycle
     def _check_environment(self) -> None:

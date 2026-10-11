@@ -130,6 +130,7 @@ outputs:
   inline_max_bytes: 700000 # keep under ~750 KB: many MCP clients reject messages over 1 MB
   preview_max_side: 1024
   keep_days: 7             # delete outputs older than this (0 = keep forever)
+  allow_delete: true       # the web page (http://<host>:5005/) can move images to its trash and empty it
   embed_metadata: false
   degrid: true             # remove the faint 2-pixel diamond grid the model's VAE leaves on skin and flat areas
 

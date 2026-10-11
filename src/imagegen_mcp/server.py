@@ -8,10 +8,14 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
+import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from mcp.server.apps import Apps
 from mcp.server.mcpserver import Context, MCPServer
@@ -19,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from PIL import Image
 from pydantic import Field
+from starlette.background import BackgroundTask
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -1083,6 +1088,104 @@ def create_server(service: ImageService) -> MCPServer:
     async def api_images(request: Request) -> Response:
         REQUEST_BASE_URL.set(base_url_from_headers(request.headers))
         return JSONResponse(service.list_images(60))
+
+    # ------------------------------------------------------------------ the web page's gallery
+    def _same_origin(request: Request) -> bool:
+        """Whether a request comes from this server's own page. The CORS setting lets any web page send requests,
+        so the routes that change files check this: a browser marks requests from other sites (Sec-Fetch-Site,
+        Origin). Requests from scripts (no Origin) are allowed, like every other route of this server."""
+        site = request.headers.get("sec-fetch-site")
+        if site and site not in ("same-origin", "none"):
+            return False
+        origin = request.headers.get("origin")
+        if not origin:
+            return True
+        hosts = {request.headers.get("host", ""), request.headers.get("x-forwarded-host", "").split(",")[0].strip()}
+        return urlsplit(origin).netloc in hosts - {""}
+
+    async def _files(request: Request) -> list[str] | None:
+        try:
+            body = await request.json()
+        except ValueError:
+            return None
+        files = body.get("files") if isinstance(body, dict) else None
+        return [f for f in files if isinstance(f, str)] if isinstance(files, list) else None
+
+    def _change_refused(request: Request) -> Response | None:
+        if not cfg.outputs.allow_delete:
+            return JSONResponse({"error": "deleting from the web page is turned off (outputs.allow_delete)"},
+                                status_code=403)
+        if not _same_origin(request):
+            return JSONResponse({"error": "only this server's own page can change files"}, status_code=403)
+        return None
+
+    @mcp.custom_route("/api/library", methods=["GET"], include_in_schema=False)
+    async def api_library(request: Request) -> Response:
+        data = await asyncio.to_thread(service.library.library)
+        data.update(allow_delete=cfg.outputs.allow_delete, keep_days=cfg.outputs.keep_days)
+        return JSONResponse(data)
+
+    @mcp.custom_route("/api/trash", methods=["GET"], include_in_schema=False)
+    async def api_trash(request: Request) -> Response:
+        return JSONResponse({"items": await asyncio.to_thread(service.library.trashed),
+                             "allow_delete": cfg.outputs.allow_delete, "keep_days": cfg.outputs.keep_days})
+
+    @mcp.custom_route("/api/delete", methods=["POST"], include_in_schema=False)
+    async def api_delete(request: Request) -> Response:
+        if (refused := _change_refused(request)) is not None:
+            return refused
+        files = await _files(request)
+        if files is None:
+            return JSONResponse({"error": 'send {"files": [...]}'}, status_code=400)
+        moved = await asyncio.to_thread(service.library.trash, files)
+        log.info("web page: moved %d image(s) to the trash", len(moved))
+        return JSONResponse({"moved": moved})
+
+    @mcp.custom_route("/api/restore", methods=["POST"], include_in_schema=False)
+    async def api_restore(request: Request) -> Response:
+        if (refused := _change_refused(request)) is not None:
+            return refused
+        files = await _files(request)
+        if files is None:
+            return JSONResponse({"error": 'send {"files": [...]}'}, status_code=400)
+        return JSONResponse({"restored": await asyncio.to_thread(service.library.restore, files)})
+
+    @mcp.custom_route("/api/trash/empty", methods=["POST"], include_in_schema=False)
+    async def api_trash_empty(request: Request) -> Response:
+        if (refused := _change_refused(request)) is not None:
+            return refused
+        files = await _files(request)  # none given: the whole trash
+        n = await asyncio.to_thread(service.library.purge, files)
+        log.info("web page: deleted %d image(s) from the trash", n)
+        return JSONResponse({"deleted": n})
+
+    @mcp.custom_route("/api/zip", methods=["POST"], include_in_schema=False)
+    async def api_zip(request: Request) -> Response:
+        files = await _files(request)
+        if not files:
+            return JSONResponse({"error": 'send {"files": [...]}'}, status_code=400)
+        fd, tmp = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        n = await asyncio.to_thread(service.library.zip, files, Path(tmp))
+        if not n:
+            Path(tmp).unlink(missing_ok=True)
+            return JSONResponse({"error": "none of these images exist"}, status_code=404)
+        name = f"images-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+        return FileResponse(tmp, media_type="application/zip", filename=name,
+                            background=BackgroundTask(lambda: Path(tmp).unlink(missing_ok=True)))
+
+    @mcp.custom_route("/thumbs/{path:path}", methods=["GET"], include_in_schema=False)
+    async def thumbs(request: Request) -> Response:
+        try:
+            size = int(request.query_params.get("s", "256"))
+        except ValueError:
+            size = 256
+        trash = request.query_params.get("trash") in ("1", "true")
+        data = await asyncio.to_thread(service.library.thumbnail, request.path_params["path"], size, trash)
+        if data is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return Response(data, media_type="image/webp", headers={"Cache-Control": "public, max-age=86400",
+                                                                "Cross-Origin-Resource-Policy": "cross-origin"})
 
     return mcp
 

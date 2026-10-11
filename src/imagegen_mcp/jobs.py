@@ -91,9 +91,11 @@ def note_turn(turn: Any, queue: Any) -> None:
 
 class JobManager:
     def __init__(self, ttl_seconds: float = 24 * 3600, max_jobs: int = 500,
-                 format_error: Callable[[BaseException], str] | None = None):
+                 format_error: Callable[[BaseException], str] | None = None,
+                 on_result: Callable[[str, Any], None] | None = None):
         self.jobs: dict[str, Job] = {}
         self.format_error = format_error or (lambda exc: str(exc) or exc.__class__.__name__)
+        self.on_result = on_result  # called with (kind, result) when a job completes, e.g. to record its settings
         self.ttl = ttl_seconds
         self.max_jobs = max_jobs
 
@@ -150,6 +152,11 @@ class JobManager:
                 job.status = "completed"
                 job.progress = 1.0
                 job.message = "done"
+                if self.on_result is not None:
+                    try:
+                        await asyncio.to_thread(self.on_result, kind, job.result)
+                    except Exception as exc:  # noqa: BLE001 - recording must never fail the job
+                        log.debug("job %s: on_result failed: %s", job.id, exc)
             except asyncio.CancelledError:
                 job.status = "cancelled"
                 job.error = "cancelled"

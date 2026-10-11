@@ -223,6 +223,7 @@ class OutputConfig(_Section):
     inline_max_bytes: int = Field(700_000, ge=10_000)
     preview_max_side: int = Field(1024, ge=128)
     keep_days: float = Field(7, ge=0)
+    allow_delete: bool = True  # the web page can move images to its trash, restore them and empty the trash
     embed_metadata: bool = False
     # Remove the faint 2-pixel diamond grid the Qwen-Image VAE leaves on smooth areas such as skin.
     degrid: bool = True
