@@ -19,6 +19,8 @@ dependencies = [
     "pillow>=12.3.0",
     "numpy>=2.4",
     "onnxruntime>=1.30.0",
+    "vtracer>=0.6.15",  # vectorize_image: traces flat images into SVG paths (MIT)
+    "resvg-py>=0.5.0",  # vectorize_image: renders the SVG preview (MIT; resvg itself is Apache-2.0 or MIT)
 ]
 
 [project.optional-dependencies]

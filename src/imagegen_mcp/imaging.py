@@ -193,6 +193,9 @@ class ImageLoader:
             # A bare result name without its date folder (clients often drop it): newest match wins.
             matches = sorted(self.outputs_dir.glob(f"*/{name}"), key=lambda p: p.stat().st_mtime, reverse=True)
             found = next((p for p in matches if self._inside(self.outputs_dir, str(p.relative_to(self.outputs_dir)))), None)
+        if found is not None and found.suffix.lower() == ".svg":  # a vectorize_image result: use its PNG twin
+            twin = found.with_suffix(".png")
+            found = twin if twin.is_file() else found
         return found
 
     def local_path(self, ref: str) -> Path | None:

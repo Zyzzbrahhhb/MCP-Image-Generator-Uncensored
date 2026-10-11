@@ -38,7 +38,7 @@ async def test_tools_are_registered_with_schemas(tmp_path):
     tools = {t.name: t for t in await mcp.list_tools()}
     assert set(tools) == {"generate_image", "edit_image", "generate_panorama", "remove_background", "server_status",
                           "get_job", "cancel_job", "list_images", "view_image", "remove_watermark", "upscale_image",
-                          "job_status"}  # job_status: used by the in-chat viewer only
+                          "vectorize_image", "job_status"}  # job_status: used by the in-chat viewer only
     assert "wait_seconds" not in tools["generate_image"].input_schema["properties"]  # the server sets the wait
     assert tools["remove_watermark"].input_schema["required"] == ["image"]
     gen = tools["generate_image"].input_schema

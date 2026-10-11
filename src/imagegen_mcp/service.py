@@ -25,6 +25,7 @@ from typing import Awaitable, Callable
 from PIL import Image
 
 from . import imaging, loras, panorama, transparency
+from . import vectorize as vectorizer
 from .config import Config
 from .devices import DevicePlan, build_device_plan
 from .jobs import JobManager
@@ -193,6 +194,7 @@ class OpResult:
     images: list[SavedImage]
     info: dict = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    svg: dict | None = None  # vectorize_image: the SVG file next to the PNG preview (file, url, bytes, text)
 
 
 class ImageService:
@@ -763,6 +765,31 @@ class ImageService:
                                   "alpha": transparency.alpha_stats(out), "model": self.cfg.transparency.matte_model,
                                   "decontaminated": self.cfg.transparency.decontaminate,
                                   "hidden_pixels": self.cfg.transparency.hidden_pixels}, _input_notes([src]))
+
+    async def vectorize(self, *, image: str, preset: str = "auto", colors: int | None = None,
+                        remove_background: bool = False, progress: Progress = _noop_progress) -> OpResult:
+        """Trace an image into an SVG (CPU, about a second). The result's image is a PNG preview of the SVG, so
+        it shows in chats and works as input for the other tools; the SVG is saved next to it."""
+        src = await self.loader.load(image)
+        notes = _input_notes([src])
+        if remove_background:
+            if self.matter is None:
+                if self.state != "ready":
+                    self.require_ready()
+                raise ServiceUnavailable("background removal is disabled (transparency.method is 'native')")
+            await progress(0.2, "removing the background")
+            src = await asyncio.to_thread(transparency.cutout, src, self.matter, **self._alpha_opts)
+        await progress(0.5, "tracing the shapes")
+        vec = await asyncio.to_thread(vectorizer.vectorize, src, preset, colors)
+        saved = self._save(vec.preview, "png", "vector")
+        svg_path = saved.path.with_suffix(".svg")
+        data = vec.svg.encode("utf-8")
+        svg_path.write_bytes(data)
+        rel = saved.filename[: -len(".png")] + ".svg"
+        info = {"preset": vec.preset, "colors": vec.colors, "paths": vec.paths, "svg_bytes": len(data),
+                "width": vec.width, "height": vec.height, "transparent_background": vec.transparent}
+        svg = {"file": rel, "url": f"{self.base_url()}/outputs/{rel}", "bytes": len(data), "text": vec.svg}
+        return OpResult([saved], info, notes + vec.notes, svg=svg)
 
     async def remove_watermark(self, *, image: str, steps: int | None = None, seed: int | None = None,
                                output_format: str | None = None, progress: Progress = _noop_progress) -> OpResult:

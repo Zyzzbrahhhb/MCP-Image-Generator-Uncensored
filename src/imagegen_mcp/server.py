@@ -24,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from . import __version__, imaging, panorama, viewer, webui
+from . import vectorize as vectorizer
 from .config import Config
 from .imaging import ImageInputError
 from .jobs import Job
@@ -46,6 +47,7 @@ IMAGE_INPUT = "this server's link or file path exactly as given (with the date f
 EXAMPLE_FILE = "2026-09-23/image-021530-ab12cd34.png"  # a result, as results and list_images give it
 EXAMPLE_UPLOAD = "uploads/2026-09-23/dog-1a2b3c4d.jpg"  # an upload from the /upload page
 EXAMPLE_JOB = "c0ffee123456"
+SVG_INLINE_CHARS = 16_000  # vectorize_image: the SVG code goes into the result up to this size (about 5k tokens)
 
 
 def _example(**args) -> str:
@@ -162,7 +164,8 @@ def _guide(cfg: Config) -> dict[str, str]:
         timing = "Generation takes 30 seconds to a few minutes."
     else:
         timing = "Generation takes one to several minutes."
-    next_tools = ", ".join(["edit_image", *(["upscale_image"] if cfg.upscale.enabled else [])]) + " or remove_background"
+    next_tools = ", ".join(["edit_image", *(["upscale_image"] if cfg.upscale.enabled else []), "remove_background"]) \
+        + " or vectorize_image"
 
     generate = _describe(
         "Create a new image from a text prompt.",
@@ -253,6 +256,22 @@ def _guide(cfg: Config) -> dict[str, str]:
         "panorama stays a seamless 360 panorama with its viewer link. It takes seconds to a minute.",
         avoid="changing the content (edit_image).", job=True)
 
+    vectorize = _describe(
+        "Convert an image to an SVG vector file: logos, icons, emblems, line art and flat art stay sharp at any size.",
+        "the user wants an SVG, a vector or scalable version of a picture, a logo for print, or a file for a vinyl "
+        "cutter, laser engraver or embroidery.",
+        _example(image=EXAMPLE_FILE),
+        "a PNG preview, the SVG link and file path, and the SVG code when it is small (edit the code to recolour "
+        "it). Pass the PNG file path to the other tools. It takes about a second.",
+        avoid="photos and detailed art: the SVG becomes large and posterized.",
+        rules=(
+            '- For a new logo or icon, first call generate_image with a prompt for flat art, for example "flat '
+            'vector logo, solid colors, no gradients, no shadows, plain white background". For an SVG with no '
+            "background, use transparent=true there or remove_background=true here.",
+            "- preset: leave it on auto (it picks logo, icon, illustration or bw from the image's colours). colors: "
+            "leave unset.",
+        ))
+
     get_job = _describe(
         "Get the result of an image job.",
         'a tool replied "Not finished yet" with a job_id. If a call was cut off before you saw its job_id, call '
@@ -298,7 +317,8 @@ def _guide(cfg: Config) -> dict[str, str]:
         "get_job with no arguments.",
     ])
     return {"instructions": instructions, "generate": generate, "edit": edit, "panorama": pano,
-            "background": background, "watermark": watermark, "upscale": upscale, "get_job": get_job,
+            "background": background, "watermark": watermark, "upscale": upscale, "vectorize": vectorize,
+            "get_job": get_job,
             "cancel_job": cancel, "list_images": list_images, "view_image": view, "server_status": status}
 
 
@@ -499,11 +519,25 @@ def create_server(service: ImageService) -> MCPServer:
             info["prompt"] = info["prompt"][:400] + "..."
         if info:
             lines.append("Details: " + json.dumps(info, separators=(", ", ": ")))
+        svg_struct, svg_block = None, None
+        if op.svg:
+            svg_struct = {k: v for k, v in op.svg.items() if k != "text"}
+            lines.append(f"SVG vector file (sharp at any size): {op.svg['url']}")
+            lines.append(f"SVG file path: {op.svg['file']}")
+            code = op.svg.get("text") or ""
+            if code and len(code) <= SVG_INLINE_CHARS:
+                svg_block = TextContent(type="text", text="SVG code:\n" + code)
+            elif code:
+                lines.append(f"(the SVG code is {len(code) // 1024} KB, too large to show here: open the link)")
         lines += [f"Note: {n}" for n in op.notes]
         text = TextContent(type="text", text="\n".join(lines))
         content = [text, *image_blocks] if data_uri_text else [*image_blocks, text]
-        return CallToolResult(content=content,
-                              structured_content={"images": structured_images, "info": op.info, "notes": op.notes})
+        if svg_block is not None:
+            content.append(svg_block)
+        structured = {"images": structured_images, "info": op.info, "notes": op.notes}
+        if svg_struct is not None:
+            structured["svg"] = svg_struct
+        return CallToolResult(content=content, structured_content=structured)
 
     def _error(msg: str) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text=msg)], is_error=True)
@@ -756,6 +790,25 @@ def create_server(service: ImageService) -> MCPServer:
         return await _start("remove_background", lambda progress: service.remove_background(**args, progress=progress),
                             ctx, args, require_engine=False)
 
+    if vectorizer.available():
+        @mcp.tool(description=guide["vectorize"],
+                  meta=UI_META, annotations=ToolAnnotations(title="Convert to SVG", readOnlyHint=False, destructiveHint=False,
+                                              idempotentHint=True, openWorldHint=True))
+        async def vectorize_image(
+            image: Annotated[str, Field(description=f"Image to convert: {IMAGE_INPUT}.")],
+            ctx: Context,
+            preset: Annotated[Literal["auto", "logo", "icon", "illustration", "bw"], Field(description="auto (default) picks from the image's colours. logo: few flat colours; icon: more detail; illustration: up to 24 colours (shaded art, photos); bw: black and white only (stencils, line art).")] = "auto",
+            colors: Annotated[int | None, Field(ge=2, le=64, description="Number of colours. Leave unset (counted from the image).")] = None,
+            remove_background: Annotated[bool, Field(description="Cut out the subject first, so the SVG has no background.")] = False,
+        ) -> CallToolResult:
+            if remove_background and service.matter is None:
+                return _error("remove_background is not available yet (models are still loading) or it is disabled "
+                              "(transparency.method is 'native')")
+            args = dict(image=image, preset=preset, colors=colors, remove_background=remove_background)
+            return await _start("vectorize", lambda progress: service.vectorize(**args, progress=progress), ctx, args,
+                                f"preset={preset} colors={colors} remove_background={remove_background}",
+                                require_engine=False)
+
     if cfg.watermark.enabled:
         @mcp.tool(description=guide["watermark"],
                   meta=UI_META, annotations=ToolAnnotations(title="Remove watermarks", readOnlyHint=False, destructiveHint=False,
@@ -934,6 +987,19 @@ def create_server(service: ImageService) -> MCPServer:
             return None
         return p if ok else None
 
+    def _vector_file(rel: str) -> Path | None:
+        """An SVG that vectorize_image saved under outputs/. It is served with a content policy that blocks
+        scripts, and it is never listed or loaded as an image (its PNG twin is)."""
+        parts = rel.replace("\\", "/").split("/")
+        if not parts[-1].lower().endswith(".svg") or any(p.startswith(".") for p in parts):
+            return None
+        try:
+            p = (outputs_root / rel).resolve()
+            ok = outputs_root in p.parents and p.is_file()
+        except (OSError, ValueError, RuntimeError):
+            return None
+        return p if ok else None
+
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(request: Request) -> Response:
         st = service.status()
@@ -945,6 +1011,11 @@ def create_server(service: ImageService) -> MCPServer:
     @mcp.custom_route("/outputs/{path:path}", methods=["GET"], include_in_schema=False)
     async def outputs(request: Request) -> Response:
         p = _output_file(request.path_params["path"])
+        if p is None and (svg := _vector_file(request.path_params["path"])) is not None:
+            return FileResponse(svg, media_type="image/svg+xml", headers={
+                "Cache-Control": "public, max-age=86400", "Cross-Origin-Resource-Policy": "cross-origin",
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+                "X-Content-Type-Options": "nosniff"})
         if p is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         # CORP lets pages served with COEP (e.g. the llama.cpp web UI) show these images.
