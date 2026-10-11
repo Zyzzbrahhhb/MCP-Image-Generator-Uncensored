@@ -242,7 +242,7 @@ what the screens mean.
 - **Update**: run `update.cmd` or `./update.sh`. Your settings and model files are kept.
 - **Stop**: `stop.cmd` or `./stop.sh`. **Logs**: `docker compose logs -f`.
 - **A message you do not understand**: see [When something goes wrong](docs/getting-started.md#messages).
-- **Web page**: open `http://localhost:5005/` to see the status, upload images and browse recent results.
+- **Web gallery**: open `http://localhost:5005/` (see [The web gallery](#the-web-gallery)).
 - **Model files** are saved in the `models` folder. After you change the model, the old files stay there:
   delete the ones you no longer use to free disk space.
 - **Settings**: your choices are saved in `config.yaml` (created from
@@ -262,9 +262,31 @@ docker compose up -d --build
 
 > **Security note.** The server is open by design, so it is easy to connect to: it has **no login**, it
 > listens on all network interfaces, and it accepts requests from any web page. Anyone who can reach port 5005
-> can make images and see every image on the server, and so can a web page open in a browser on your network.
+> can make images, see every image on the server and delete images from its web page, and so can a web page open
+> in a browser on your network (except deleting: only the server's own page can do that).
 > Run it on your own computer or a network you trust, use a VPN such as Tailscale for remote access, and never
 > forward the port to the internet.
+
+## The web gallery
+
+Open `http://localhost:5005/` in a browser on your network.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/gallery.webp" alt="The web gallery: folders by day on the left, search, filters by type and sort at the top, and a grid of the server's images"></td>
+<td width="50%"><img src="docs/images/gallery-viewer.webp" alt="The gallery's viewer: an image full size, with its prompt, reference and settings on the right"></td>
+</tr>
+</table>
+
+- Every image on the server, by folder and day. Search names and prompts, filter by type (generated, edit,
+  transparent, tile, panorama, upscaled, SVG, upload) and sort by date, name or size.
+- Select many images (their check marks, Ctrl+click, Shift+click for a range, Ctrl+A), then download them as a zip
+  or move them to the trash. Undo brings them back, and so does the trash until you empty it or the outputs cleanup
+  removes old files (`outputs.keep_days`).
+- Click an image to see it full size with its prompt and settings, and copy its reference for your AI app.
+- Drop images on the page to upload them as inputs for edits.
+
+To stop the page from deleting images, set `outputs.allow_delete: false` in `config.yaml`.
 
 ## Turbo or Non-Turbo
 
@@ -275,6 +297,7 @@ docker compose up -d --build
 | Model | Official Qwen-Image-2.1-Turbo, 8 steps, CFG 1 | Qwen-Image-2.1 in a GGUF build that keeps its quality at 4-bit, 40 steps, CFG 4 |
 | 1344x768 photo, RTX 5090 32 GB | 5.1 s | 36.2 s |
 | 1024x1024 image, RTX 3080 Ti 12 GB | 11.4 s | about 90 s |
+| 1024x1024 image, Mac M5 Max (native, in development) | 48 s | 7.6 min |
 | Small text | Weak in small images (512x512 and less) | Good |
 
 **Recommended setup: Turbo Q4_K_M with the Q4_K_M text encoder.** The setup recommends it, so Enter picks it. It
@@ -286,7 +309,7 @@ With less GPU memory, the server keeps more weights in RAM. On the same GPU this
 
 Turbo, seconds per image:
 
-| Job | RTX 5090 32 GB | RTX 3080 Ti 12 GB |
+| Job | RTX 5090 32 GB, everything in GPU memory | RTX 3080 Ti 12 GB, text encoder in RAM |
 |---|---|---|
 | Photo, 1344x768 | 5.1 | 11.5 |
 | Poster, 768x1024 | 3.9 | 9.0 |
@@ -299,6 +322,9 @@ Turbo, seconds per image:
 | GPU memory used | about 15 GB (edits about 17 GB) | up to 10.1 GB (watermark removal 10.5 GB) |
 
 The 3080 Ti uses the limit that the setup sets: 10 GB. Smaller GPUs: see [GPU memory](#gpu-memory).
+
+**Mac**: on a MacBook Pro M5 Max, Docker uses only the CPU, and Turbo took 148 s at 512x512. The native version for
+the Apple GPU, in development, took 11 s at 512x512, 48 s at 1024x1024 and 69 s for an edit. See [Mac](docs/mac.md).
 
 **First install**: about 30 minutes on a fast PC with a 1 Gbps line. The build took 16 minutes (10-30 minutes,
 depending on the CPU), and the Turbo download (11.4 GB) took 13 minutes. After that, the server is ready about 35 s
@@ -328,29 +354,28 @@ docker run --rm --gpus all nvidia/cuda:12.8.2-base-ubuntu24.04 nvidia-smi
 
 ### GPU memory
 
-The setup sets everything for your GPU. Choose one GPU and the whole model goes on it. If the model does not fit,
-the server keeps some weights in RAM by itself.
+The setup sets everything for your GPU. Choose one GPU and the model goes on it. What does not fit stays in RAM: the
+engine decides this by itself. On a 12 GB GPU, for example, it keeps the text encoder's weights in RAM.
+
+Docker on a Mac uses only the CPU and RAM, with no GPU: see [Mac](docs/mac.md).
 
 Turbo, seconds per image, with what the setup sets for each GPU size:
 
-| GPU memory | 1344x768 | 1024x1024 | 512x512 | GPU memory used | RAM used by Docker |
-|---|---|---|---|---|---|
-| 4 GB | 22.3 | 22.9 | 6.5 | 2.5 GB | about 10 GB |
-| 6 GB | 21.4 | 21.7 | 4.8 | 4.5 GB | about 10 GB |
-| 8 GB | 11.8 | 12.4 | 3.9 | 5.9 GB | about 10 GB |
-| 10 GB | 11.8 | 12.4 | 3.9 | 5.9 GB | about 10 GB |
-| 12 GB | 11.4 | 11.4 | 3.8 | 9.8 GB | up to 11 GB |
-| GTX 1650 4 GB (old PC) | 618 | 632 | 110 | 2.2 GB | 6.2 GB |
+| GPU memory | 1344x768 | 1024x1024 | 512x512 | GPU memory used |
+|---|---|---|---|---|
+| 4 GB (estimate) | 22.3 | 22.9 | 6.5 | 2.5 GB |
+| 6 GB (estimate) | 21.4 | 21.7 | 4.8 | 4.5 GB |
+| 8 GB (estimate) | 11.8 | 12.4 | 3.9 | 5.9 GB |
+| 10 GB | 11.8 | 12.4 | 3.9 | 5.9 GB |
+| 12 GB | 11.4 | 11.4 | 3.8 | 9.8 GB |
 
-All rows except the GTX 1650 come from one RTX 3080 Ti. For each row, the server had the memory limit that the
-setup sets for that GPU size. So the rows show the cost of less memory, not of a slower GPU.
+All rows come from one RTX 3080 Ti, with the memory limit that the setup sets for each GPU size. They show the cost
+of less memory, not of a slower GPU. So the 4-8 GB rows are estimates: a real card of that size is slower.
 
-A real small GPU is also slower. See the GTX 1650 row: an old PC with 16 GB of DDR3 RAM, PCIe 2.0 and a hard disk.
-Docker had 12 GB, so the server read the text encoder from the disk. A GPU that keeps weights in RAM also needs a
-fast PCIe slot: in a PCIe x1 slot, each image took 5-7 s longer.
-
-An earlier test on a 12 GB GPU with the Non-Turbo model and the text encoder in RAM ran every feature, including
-2048x2048 images, edits with 10 input images, 2880x1440 panoramas and upscaling to 8192 px.
+**An old PC is much slower.** On a real GTX 1650 4 GB, one image took 618 s at 1344x768, 632 s at 1024x1024 and
+110 s at 512x512, using 2.2 GB of GPU memory. The GTX 1650 has about 11 times less FP32 compute than an RTX 3080 Ti
+(3 against 34 TFLOPS) and no tensor cores. That PC also had 16 GB of DDR3 RAM and a hard disk. Docker had 12 GB of that RAM, so the server read
+the text encoder from the disk for each image.
 
 ### Split the model over GPUs and the CPU
 
@@ -360,9 +385,9 @@ GPU, set the parts in `config.yaml` (see [Choosing GPUs](#choosing-gpus)).
 
 <img src="docs/images/split-diagram.webp" width="100%" alt="The image model on GPU 0, the text encoder on GPU 1 and the image decoder on the CPU, all connected to the server, which makes the image">
 
-- On a GPU with 12-19 GB, the setup recommends the text encoder's weights in RAM. Its weights (5.0 GB, or 8.7 GB
-  with the Q8_0 file) then stay out of GPU memory.
-  On a GPU with 8-11 GB it was slower (19.4 s against 11.8 s at 1344x768), so the setup does not recommend it there.
+- In Custom load, the setup recommends the text encoder in RAM on a GPU with 12-19 GB. Its weights (5.0 GB, or 8.7 GB
+  with the Q8_0 file) then stay out of GPU memory (on a 12 GB GPU, the engine also does this by itself). On a GPU
+  with 8-11 GB this was slower (19.4 s against 11.8 s at 1344x768), so the setup does not recommend it there.
 - The image decoder on the CPU makes each image much slower. Use it only when no GPU has room.
 
 ## Choosing a model
@@ -370,16 +395,24 @@ GPU, set the parts in `config.yaml` (see [Choosing GPUs](#choosing-gpus)).
 The setup asks which model to use (the first start runs it). Run `setup.cmd` or `./setup.sh` at any time to
 change it.
 
-| Your GPU memory | Setup choice | Model + text encoder (file sizes) | Download | RAM used | 1024x1024 image |
-|---|---|---|---|---|---|
-| 12 GB or more | Best quality | Non-Turbo Q4_K_M (4.6 GB) + text encoder Q8_0 (8.7 GB) | 15.5 GB | about 18 GB (estimate) | 89 s |
-| 12 GB or more | Standard | Non-Turbo Q4_K_M (4.6 GB) + text encoder Q4_K_M (5.0 GB) | 11.8 GB | about 14 GB | 89 s |
-| 4 GB or more | **Turbo** (recommended: fastest, smallest) | Turbo Q4_K_M (4.2 GB) + text encoder Q4_K_M (5.0 GB) | 11.4 GB | about 11 GB | 11 s |
+| | Setup choice | Model | Text encoder | Download | One 1024x1024 image | GPU memory used | RAM used |
+|---|---|---|---|---|---|---|---|
+| 1 | Best quality | Non-Turbo, 40 steps: Q4_K_M, 4-bit (4.6 GB) | Q8_0, 8-bit (8.7 GB) | 15.5 GB | 89 s | up to 10 GB (the limit) | about 18 GB (estimate) |
+| 2 | Standard | Non-Turbo, 40 steps: Q4_K_M, 4-bit (4.6 GB) | Q4_K_M, 4-bit (5.0 GB) | 11.8 GB | 89 s | up to 10 GB (the limit) | about 14 GB |
+| 3 | **Turbo** (recommended) | Turbo, 8 steps: Q4_K_M, 4-bit (4.2 GB) | Q4_K_M, 4-bit (5.0 GB) | 11.4 GB | 11 s | 9.8 GB | about 11 GB |
 
-Times: one 1024x1024 image on an RTX 3080 Ti 12 GB. Each download includes 2.2 GB of files that every choice
-needs (the text encoder's vision file, the image decoder, background removal, watermark removal, upscaler). Turbo is the
-official Qwen-Image-2.1-Turbo: it is much faster, but weaker at small text and at following long prompts.
-Non-Turbo is Qwen-Image-2.1 in a GGUF build by abenzerps, chosen because it keeps its quality well at 4-bit.
+- **Time, GPU memory and RAM**: one 1024x1024 image on an RTX 3080 Ti 12 GB, with the 10 GB limit that the setup
+  sets for it. What does not fit in GPU memory stays in RAM.
+- **GPU**: Turbo runs on a GPU with 4 GB or more. For Non-Turbo, use a GPU with 12 GB or more: it makes 40 steps per
+  image, so it gets slow when its weights stay in RAM.
+- **Memory for Docker**: 16 GB for Turbo and Standard, 20 GB for Best quality. The setup checks this.
+- **Mac**: on an M5 Max with the native version in development, one 1024x1024 image took 48 s with Turbo and 7-7.6
+  minutes with Non-Turbo. See [Mac](docs/mac.md).
+- **Download**: each one includes 2.2 GB of files that every choice needs (the text encoder's vision file, the image
+  decoder, background removal, watermark removal, upscaler).
+
+Turbo is the official Qwen-Image-2.1-Turbo: it is much faster, but weaker at small text and at following long
+prompts. Non-Turbo is Qwen-Image-2.1 in a GGUF build by abenzerps, chosen because it keeps its quality well at 4-bit.
 
 <a href="docs/images/model-comparison.webp"><img src="docs/images/model-comparison.webp" width="100%" alt="The same watch movement with the engraved text SWISS MADE, made with each model and text encoder"></a><br>
 <b>Same prompt and seed with each combination</b> (click to see full size). The Non-Turbo model with the Q8_0
