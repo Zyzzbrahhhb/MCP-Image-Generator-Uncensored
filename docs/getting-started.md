@@ -158,7 +158,8 @@ If a GPU may not have enough memory for its parts, the script warns you before `
 ```
 
 - **Limited to 10 GB**: on a GPU with less than 20 GB, the server plans for 2 GB less than the GPU has. The rest is
-  for the screen and other programs.
+  for the screen and other programs. A GPU with 9-11 GB gets 6 GB: the server then keeps the weights in RAM, and the
+  image decoder has room. This is faster.
 - **Text encoder in RAM**: only when you chose it in the custom load.
 
 The setup changes only the device, the GPU settings, the model and `generation.prefix_cache_type`. Your other

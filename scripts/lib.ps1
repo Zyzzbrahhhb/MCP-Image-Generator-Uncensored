@@ -473,17 +473,22 @@ function Get-GpuWarnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
         }
     }
 }
-# On one GPU, a note when the model does not fit in the GPU's limit even with the text encoder's and the decoder's
-# weights in RAM (the image model, about 0.4 GB for those two, and the working memory of the largest step, the decoder's
-# 4 GB at 1024x1024). The engine then keeps part of the image model in RAM or decodes in tiles, so each image takes
-# longer (measured on a real RTX 3080 10 GB: the decoder fell back to tiles).
-function Show-SlowNote($m, [string]$Gpu, $Preset) {
-    $gb = (Get-Gpu $m ([int]$Gpu)).GB
-    $cap = if ($gb -lt 20) { $gb - 2 } else { $gb }
-    if ([double](Get-ImageGB $Preset) + 0.4 + 4 -gt $cap) {
+# On one GPU with less than 8 GB, a note that each image takes longer. Measured with Turbo on a 3080 Ti limited like
+# smaller GPUs: 8-12 GB about 12 s at 1024x1024, 4-6 GB about 22 s (the decoder has to work in tiles).
+function Show-SlowNote($m, [string]$Gpu) {
+    if ((Get-Gpu $m ([int]$Gpu)).GB -lt 8) {
         Write-Host ''
         Write-Host '    This GPU is small for the whole model: the server keeps part of it in RAM, so each image takes longer.' -ForegroundColor Yellow
     }
+}
+# The memory limit for a GPU under 20 GB: its memory minus 2 GB for the screen and other programs. When one GPU with
+# 9-11 GB runs every part, 6 GB: with more, the engine keeps the image model on the GPU and the decoder runs out of room
+# and works in tiles; with 6 GB it streams every weight from RAM and the decoder fits. Measured on a 3080 Ti (PCIe 4.0
+# x4) limited like a 10 GB GPU, 1344x768: 11.7 s against 19.4 s.
+function Get-GpuLimit($m, [int]$Gpu, [string]$Img, [string]$TE, [string]$Dec) {
+    $gb = (Get-Gpu $m $Gpu).GB
+    if ($gb -ge 9 -and $gb -le 11 -and $Img -eq "$Gpu" -and $TE -eq "$Gpu" -and $Dec -eq "$Gpu") { return 6 }
+    $gb - 2
 }
 # Print the memory warnings, if any. Returns $true when there were some.
 function Show-Warnings($m, [string]$Img, [string]$TE, [string]$Dec, $Preset) {
@@ -529,7 +534,10 @@ function Set-GpuConfig([string]$Text, $m, [string]$Img, [string]$TE, [string]$De
     $caps = @(); $limits = @()
     foreach ($i in $used) {
         $gb = (Get-Gpu $m $i).GB
-        if ($gb -lt 20) { $caps += "${i}: $($gb - 2)"; $limits += "GPU $i limited to $($gb - 2) GB" }
+        if ($gb -lt 20) {
+            $lim = Get-GpuLimit $m $i $Img $TE $Dec
+            $caps += "${i}: $lim"; $limits += "GPU $i limited to $lim GB"
+        }
     }
     $offload = 'auto'; $teGpu = $TE
     if ($TE -eq 'ram') { $offload = '{text_encoder: cpu}'; $teGpu = $imgs[0] }
@@ -543,7 +551,7 @@ function Set-GpuConfig([string]$Text, $m, [string]$Img, [string]$TE, [string]$De
     if ($imgs.Count -eq 1 -and $Dec -eq $Img -and ($TE -eq $Img -or $TE -eq 'ram')) {
         $i = [int]$Img; $gb = (Get-Gpu $m $i).GB
         $note = "GPU $i"
-        if ($gb -lt 20) { $note += " (limited to $($gb - 2) GB)" }
+        if ($gb -lt 20) { $note += " (limited to $(Get-GpuLimit $m $i $Img $TE $Dec) GB)" }
         if ($TE -eq 'ram') { $note += ', text encoder in RAM' }
     } else {
         $note = Get-PartsText $Img $TE $Dec
@@ -638,7 +646,7 @@ function Invoke-Setup {
         if (-not $sel -or $sel.Split) { break }
         $i = "$($sel.List[0])"
         $place = @{ Img = $i; TE = $i; Dec = $i }
-        Show-SlowNote $m $i $p
+        Show-SlowNote $m $i
         break
     }
 

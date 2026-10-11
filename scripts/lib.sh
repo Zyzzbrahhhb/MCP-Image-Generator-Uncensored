@@ -524,17 +524,26 @@ gpu_warnings() {
       if (files > 0 && need > $3 - 2)
         printf "    GPU %s (%s, %s GB) may run out of memory: its parts need about %d GB.\n", $1, $2, $3, int(need + 0.5) }'
 }
-# slow_note GPU PRESET_LINE: on one GPU, a note when the model does not fit in the GPU's limit even with the text
-# encoder's and the decoder's weights in RAM (the image model, about 0.4 GB for those two, and the working memory of the
-# largest step, the decoder's 4 GB at 1024x1024). The engine then keeps part of the image model in RAM or decodes in
-# tiles, so each image takes longer (measured on a real RTX 3080 10 GB: the decoder fell back to tiles).
+# slow_note GPU: on one GPU with less than 8 GB, a note that each image takes longer. Measured with Turbo on a 3080 Ti
+# limited like smaller GPUs: 8-12 GB about 12 s at 1024x1024, 4-6 GB about 22 s (the decoder has to work in tiles).
 slow_note() {
-  local gb cap
-  gb=$(gpu_gb "$1"); cap=$gb
-  if [ "$gb" -lt 20 ]; then cap=$((gb - 2)); fi
-  if awk -v i="$(image_gb "$2")" -v c="$cap" 'BEGIN { exit !(i + 0.4 + 4 > c) }'; then
+  if [ "$(gpu_gb "$1")" -lt 8 ]; then
     echo
     echo "    This GPU is small for the whole model: the server keeps part of it in RAM, so each image takes longer."
+  fi
+}
+# gpu_limit GPU: the memory limit for a GPU under 20 GB: its memory minus 2 GB for the screen and other programs. When
+# one GPU with 9-11 GB runs every part, 6 GB: with more, the engine keeps the image model on the GPU and the decoder runs
+# out of room and works in tiles; with 6 GB it streams every weight from RAM and the decoder fits. Measured on a 3080 Ti
+# (PCIe 4.0 x4) limited like a 10 GB GPU, 1344x768: 11.7 s against 19.4 s.
+gpu_limit() {
+  local gb
+  gb=$(gpu_gb "$1")
+  if [ "$gb" -ge 9 ] && [ "$gb" -le 11 ] && [ "$PLACE_IMG" = "$1" ] && [ "$PLACE_TE" = "$1" ] &&
+     [ "$PLACE_DEC" = "$1" ]; then
+    echo 6
+  else
+    echo $((gb - 2))
   fi
 }
 # show_warnings IMG TE DEC PRESET_LINE: print the memory warnings, if any. True when there were some.
@@ -588,7 +597,7 @@ write_config() {
     for i in $used; do
       gb=$(gpu_gb "$i")
       if [ "${gb:-0}" -lt 20 ]; then
-        caps="${caps:+$caps, }$i: $((gb - 2))"; limits="${limits:+$limits, }GPU $i limited to $((gb - 2)) GB"
+        caps="${caps:+$caps, }$i: $(gpu_limit "$i")"; limits="${limits:+$limits, }GPU $i limited to $(gpu_limit "$i") GB"
       fi
     done
     if [ -n "$caps" ]; then cache=q8_0; fi
@@ -604,7 +613,7 @@ write_config() {
        [ "$PLACE_IMG" = "${PLACE_IMG%% *}" ]; then
       gb=$(gpu_gb "$PLACE_IMG")
       GPU_NOTE="GPU $PLACE_IMG"
-      if [ "$gb" -lt 20 ]; then GPU_NOTE="$GPU_NOTE (limited to $((gb - 2)) GB)"; fi
+      if [ "$gb" -lt 20 ]; then GPU_NOTE="$GPU_NOTE (limited to $(gpu_limit "$PLACE_IMG") GB)"; fi
       if [ "$PLACE_TE" = ram ]; then GPU_NOTE="$GPU_NOTE, text encoder in RAM"; fi
     else
       GPU_NOTE="$(parts_text "$PLACE_IMG" "$PLACE_TE" "$PLACE_DEC")${limits:+ ($limits)}"
@@ -704,7 +713,7 @@ run_setup() {
     if [ "$CHOICE" -gt "$PRESET_COUNT" ]; then p=$CUR_CHOICE; else p=$(preset "$CHOICE"); fi
     if [ "$DEVICE_REC" = gpu ] && [ "${SPLIT:-0}" != 1 ]; then
       PLACE_TE=$PLACE_IMG; PLACE_DEC=$PLACE_IMG
-      slow_note "$PLACE_IMG" "$p"
+      slow_note "$PLACE_IMG"
     fi
     break
   done
